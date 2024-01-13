@@ -51,12 +51,8 @@ static_assert(__cplusplus == 201703L, "Surge requires C++17; please update your 
     (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
 #include <emmintrin.h>
 #else
-#if defined(__arm__) || defined(__aarch64__) || defined(__riscv)
 #define SIMDE_ENABLE_NATIVE_ALIASES
 #include "simde/x86/sse2.h"
-#else
-#error Surge XT requires either X86/SSE2 or ARM architectures.
-#endif
 #endif
 
 #if MAC || LINUX
