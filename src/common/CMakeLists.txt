@@ -23,13 +23,29 @@ surge_add_lib_subdirectory(pffft)
 surge_add_lib_subdirectory(tuning-library)
 surge_add_lib_subdirectory(sqlite-3.23.3)
 
+option(SURGE_USE_SYSTEM_LUA "Use system Lua instead of LuaJIT" OFF)
+
+if(${CMAKE_SYSTEM_PROCESSOR} MATCHES "^ppc")
+  # PowerPC/Power processors aren't supported by LuaJIT.
+  set(SURGE_USE_SYSTEM_LUA ON)
+endif()
+
 if(NOT SURGE_SKIP_LUA)
-  surge_add_lib_subdirectory(LuaJitLib)
+  if(SURGE_USE_SYSTEM_LUA)
+    find_package(Lua51)
+    add_library(luajit-5.1 INTERFACE)
+    target_include_directories(luajit-5.1 INTERFACE ${LUA_INCLUDE_DIR})
+    target_link_libraries(luajit-5.1 INTERFACE ${LUA_LIBRARIES})
+    target_compile_definitions(luajit-5.1 INTERFACE HAS_LUAJIT=0)
+  else()
+    surge_add_lib_subdirectory(LuaJitLib)
+    target_compile_definitions(luajit-5.1 INTERFACE HAS_LUAJIT=1)
+  endif()
   target_compile_definitions(luajit-5.1 INTERFACE HAS_LUA=1)
 else()
   # Make sure we know it is missing
   add_library(luajit-5.1 INTERFACE)
-  target_compile_definitions(luajit-5.1 INTERFACE HAS_LUA=0)
+  target_compile_definitions(luajit-5.1 INTERFACE HAS_LUA=0 HAS_LUAJIT=0)
 endif()
 
 surge_add_lib_subdirectory(sst/sst-basic-blocks)

@@ -38,9 +38,16 @@ extern "C"
 #include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
+#if HAS_LUAJIT
 #include "luajit.h"
 
 #include "lj_arch.h"
+#endif
+
+// If not using LuaJIT, LUA_OK may not be defined.
+#ifndef LUA_OK
+#define LUA_OK 0
+#endif
 }
 #else
 typedef int lua_State;
