@@ -4,7 +4,7 @@
  *
  * Learn more at https://surge-synthesizer.github.io/
  *
- * Copyright 2018-2023, various authors, as described in the GitHub
+ * Copyright 2018-2024, various authors, as described in the GitHub
  * transaction log.
  *
  * Surge XT is released under the GNU General Public Licence v3
@@ -1059,7 +1059,7 @@ int32_t SurgeGUIEditor::controlModifierClicked(Surge::GUI::IComponentTagValue *c
 
                                 pushModulationToUndoRedo(md, (modsources)thisms, use_scene, modidx,
                                                          Surge::GUI::UndoManager::UNDO);
-                                synth->clearModulation(md, thisms, use_scene, modidx);
+                                synth->clearModulation(md, thisms, use_scene, modidx, false);
                                 refresh_mod();
 
                                 if (bvf)
@@ -1164,7 +1164,7 @@ int32_t SurgeGUIEditor::controlModifierClicked(Surge::GUI::IComponentTagValue *c
                                                                  idx,
                                                                  Surge::GUI::UndoManager::UNDO);
 
-                                        synth->clearModulation(md, thisms, use_scene, idx);
+                                        synth->clearModulation(md, thisms, use_scene, idx, false);
                                     }
                             }
 
@@ -2740,7 +2740,7 @@ int32_t SurgeGUIEditor::controlModifierClicked(Surge::GUI::IComponentTagValue *c
                                                         ptag, (modsources)ms, sc, modidx,
                                                         Surge::GUI::UndoManager::UNDO);
                                                     synth->clearModulation(ptag, (modsources)ms, sc,
-                                                                           modidx);
+                                                                           modidx, false);
                                                     refresh_mod();
                                                     synth->storage.getPatch().isDirty = true;
                                                     synth->refresh_editor = true;
@@ -3092,7 +3092,7 @@ int32_t SurgeGUIEditor::controlModifierClicked(Surge::GUI::IComponentTagValue *c
                 pushModulationToUndoRedo(ptag, (modsources)thisms, use_scene, modsource_index,
                                          Surge::GUI::UndoManager::UNDO);
 
-                synth->clearModulation(ptag, thisms, use_scene, modsource_index);
+                synth->clearModulation(ptag, thisms, use_scene, modsource_index, false);
                 auto ctrms = dynamic_cast<Surge::Widgets::ModulatableControlInterface *>(control);
                 jassert(ctrms);
 
@@ -3698,8 +3698,9 @@ void SurgeGUIEditor::valueChanged(Surge::GUI::IComponentTagValue *control)
         if (d != cur_bitmask)
         {
             // Send changed value of mask to OSC out
+            std::string binary = std::bitset<16>(d).to_string(); // to binary
             juceEditor->processor.paramChangeToListeners(
-                nullptr, true, juceEditor->processor.SCT_FX_DEACT, 0, std::to_string(d));
+                nullptr, true, juceEditor->processor.SCT_FX_DEACT, 0, (float)d, binary);
         }
 
         synth->storage.getPatch().fx_disable.val.i = d;

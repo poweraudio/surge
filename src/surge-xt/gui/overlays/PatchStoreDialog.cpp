@@ -4,7 +4,7 @@
  *
  * Learn more at https://surge-synthesizer.github.io/
  *
- * Copyright 2018-2023, various authors, as described in the GitHub
+ * Copyright 2018-2024, various authors, as described in the GitHub
  * transaction log.
  *
  * Surge XT is released under the GNU General Public Licence v3
@@ -273,6 +273,8 @@ void PatchStoreDialog::onSkinChanged()
                           skin->getColor(Colors::Dialog::Entry::Border));
         typein->setColour(juce::TextEditor::focusedOutlineColourId,
                           skin->getColor(Colors::Dialog::Entry::Border));
+
+        typein->applyColourToAllText(skin->getColor(Colors::Dialog::Entry::Text));
     };
 
     auto resetLabel = [this](const auto &label) {

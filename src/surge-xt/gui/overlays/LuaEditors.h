@@ -4,7 +4,7 @@
  *
  * Learn more at https://surge-synthesizer.github.io/
  *
- * Copyright 2018-2023, various authors, as described in the GitHub
+ * Copyright 2018-2024, various authors, as described in the GitHub
  * transaction log.
  *
  * Surge XT is released under the GNU General Public Licence v3
@@ -117,6 +117,8 @@ struct FormulaModulatorEditor : public CodeEditorContainerWithApply, public Refr
     {
         return false;
     }
+
+    std::optional<std::pair<std::string, std::string>> getPreCloseChickenBoxMessage() override;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FormulaModulatorEditor);
 };

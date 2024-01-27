@@ -4,7 +4,7 @@
  *
  * Learn more at https://surge-synthesizer.github.io/
  *
- * Copyright 2018-2023, various authors, as described in the GitHub
+ * Copyright 2018-2024, various authors, as described in the GitHub
  * transaction log.
  *
  * Surge XT is released under the GNU General Public Licence v3
@@ -2533,6 +2533,7 @@ void SurgeGUIEditor::controlBeginEdit(Surge::GUI::IComponentTagValue *control)
 {
     long tag = control->getTag();
     int ptag = tag - start_paramtags;
+
     if (ptag >= 0 && ptag < synth->storage.getPatch().param_ptr.size())
     {
         if (mod_editor)
@@ -2544,6 +2545,11 @@ void SurgeGUIEditor::controlBeginEdit(Surge::GUI::IComponentTagValue *control)
                     ptag, synth->storage.getPatch().param_ptr[ptag], modsource, current_scene,
                     modsource_index, mci->modValue,
                     synth->isModulationMuted(ptag, modsource, current_scene, modsource_index));
+
+                for (auto l : synth->modListeners)
+                {
+                    l->modBeginEdit(ptag, modsource, current_scene, modsource_index, mci->modValue);
+                }
             }
         }
         else
@@ -2570,9 +2576,24 @@ void SurgeGUIEditor::controlEndEdit(Surge::GUI::IComponentTagValue *control)
 {
     long tag = control->getTag();
     int ptag = tag - start_paramtags;
+
     if (ptag >= 0 && ptag < synth->storage.getPatch().param_ptr.size())
     {
-        juceEditor->endParameterEdit(synth->storage.getPatch().param_ptr[ptag]);
+        if (mod_editor)
+        {
+            auto mci = dynamic_cast<Surge::Widgets::ModulatableControlInterface *>(control);
+            if (mci)
+            {
+                for (auto l : synth->modListeners)
+                {
+                    l->modEndEdit(ptag, modsource, current_scene, modsource_index, mci->modValue);
+                }
+            }
+        }
+        else
+        {
+            juceEditor->endParameterEdit(synth->storage.getPatch().param_ptr[ptag]);
+        }
     }
     else if (tag_mod_source0 + int(ms_ctrl1) <= tag &&
              tag_mod_source0 + int(ms_ctrl1) + int(n_customcontrollers) > tag)
@@ -6403,4 +6424,20 @@ void SurgeGUIEditor::enqueueAccessibleAnnouncement(const std::string &s)
     {
         accAnnounceStrings.push_back({s, 3});
     }
+}
+
+void SurgeGUIEditor::playNote(char key, char vel)
+{
+    auto ed = juceEditor;
+    auto &proc = ed->processor;
+
+    proc.midiFromGUI.push(SurgeSynthProcessor::midiR(0, key, vel, true));
+}
+
+void SurgeGUIEditor::releaseNote(char key, char vel)
+{
+    auto ed = juceEditor;
+    auto &proc = ed->processor;
+
+    proc.midiFromGUI.push(SurgeSynthProcessor::midiR(0, key, vel, false));
 }

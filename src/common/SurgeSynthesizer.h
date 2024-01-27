@@ -4,7 +4,7 @@
  *
  * Learn more at https://surge-synthesizer.github.io/
  *
- * Copyright 2018-2023, various authors, as described in the GitHub
+ * Copyright 2018-2024, various authors, as described in the GitHub
  * transaction log.
  *
  * Surge XT is released under the GNU General Public Licence v3
@@ -374,7 +374,7 @@ class alignas(16) SurgeSynthesizer
     void muteModulation(long ptag, modsources modsource, int modsourceScene, int index, bool mute);
     bool isModulationMuted(long ptag, modsources modsource, int modsourceScene, int index) const;
     void clearModulation(long ptag, modsources modsource, int modsourceScene, int index,
-                         bool clearEvenIfInvalid = false);
+                         bool clearEvenIfInvalid);
     // clear the modulation routings on the algorithm-specific sliders
     void clear_osc_modulation(int scene, int entry);
 
@@ -396,6 +396,21 @@ class alignas(16) SurgeSynthesizer
         virtual void modMuted(long ptag, modsources modsource, int modsourceScene, int index,
                               bool mute) = 0;
         virtual void modCleared(long ptag, modsources modsource, int modsourceScene, int index) = 0;
+
+        /*
+         * These two methods are called optionally if an event is initiated by a user drag
+         * action or so on. They will only be called on the UI thread. Not every set etc...
+         * is contained in a begin/end and mute and cleared almost definitely will never
+         * be wrapped.
+         */
+        virtual void modBeginEdit(long ptag, modsources modsource, int modsourceScene, int index,
+                                  float depth01)
+        {
+        }
+        virtual void modEndEdit(long ptag, modsources modsource, int modsourceScene, int index,
+                                float depth01)
+        {
+        }
     };
     std::set<ModulationAPIListener *> modListeners;
     void addModulationAPIListener(ModulationAPIListener *l) { modListeners.insert(l); }
@@ -516,6 +531,7 @@ class alignas(16) SurgeSynthesizer
         int source_index;
         int whichForReal;
         float depth;
+        bool muted{false};
     };
     std::array<std::vector<FXModSyncItem>, n_fx_slots> fxmodsync;
     int32_t fx_suspend_bitmask;

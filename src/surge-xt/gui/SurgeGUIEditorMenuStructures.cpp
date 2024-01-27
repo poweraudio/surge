@@ -4,7 +4,7 @@
  *
  * Learn more at https://surge-synthesizer.github.io/
  *
- * Copyright 2018-2023, various authors, as described in the GitHub
+ * Copyright 2018-2024, various authors, as described in the GitHub
  * transaction log.
  *
  * Surge XT is released under the GNU General Public Licence v3
@@ -1717,6 +1717,10 @@ juce::PopupMenu SurgeGUIEditor::makeOSCMenu(const juce::Point<int> &where)
     auto storage = &(synth->storage);
     auto des = &(synth->storage.getPatch().dawExtraState);
     auto oscSubMenu = juce::PopupMenu();
+
+    oscSubMenu.addItem("Show OSC Settings Screen",
+                       [this]() { showOverlay(OPEN_SOUND_CONTROL_SETTINGS); });
+    oscSubMenu.addSeparator();
 
     if (storage->oscListenerRunning || storage->oscSending)
     {

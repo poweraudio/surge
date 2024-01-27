@@ -4,7 +4,7 @@
  *
  * Learn more at https://surge-synthesizer.github.io/
  *
- * Copyright 2018-2023, various authors, as described in the GitHub
+ * Copyright 2018-2024, various authors, as described in the GitHub
  * transaction log.
  *
  * Surge XT is released under the GNU General Public Licence v3
@@ -804,6 +804,7 @@ struct MSEGCanvas : public juce::Component, public Surge::GUI::SkinConsumingComp
         {
             int ls = (ms->loop_start >= 0 ? ms->loop_start : 0);
             int le = (ms->loop_end >= 0 ? ms->loop_end : ms->n_activeSegments - 1);
+
             float pxs = limit_range((float)tpx(ms->segmentStart[ls]), (float)haxisArea.getX(),
                                     (float)haxisArea.getRight());
             float pxe = limit_range((float)tpx(ms->segmentEnd[le]), (float)haxisArea.getX(),
@@ -822,15 +823,14 @@ struct MSEGCanvas : public juce::Component, public Surge::GUI::SkinConsumingComp
             auto mcolor = skin->getColor(Colors::MSEGEditor::Loop::Marker);
 
             // draw loop markers
-            if (loopDragTime < 0 || !loopDragIsStart)
+            if ((loopDragTime < 0 || !loopDragIsStart) && (ls >= 0 && ls < ms->segmentStart.size()))
             {
-                drawLoopDragMarker(g, mcolor, hotzone::LOOP_START,
-                                   ms->segmentStart[ms->loop_start]);
+                drawLoopDragMarker(g, mcolor, hotzone::LOOP_START, ms->segmentStart[ls]);
             }
 
-            if (loopDragTime < 0 || loopDragIsStart)
+            if ((loopDragTime < 0 || loopDragIsStart) && (le >= 0 && le < ms->segmentStart.size()))
             {
-                drawLoopDragMarker(g, mcolor, hotzone::LOOP_END, ms->segmentEnd[ms->loop_end]);
+                drawLoopDragMarker(g, mcolor, hotzone::LOOP_END, ms->segmentEnd[le]);
             }
 
             // loop marker when dragged
@@ -1336,10 +1336,7 @@ struct MSEGCanvas : public juce::Component, public Surge::GUI::SkinConsumingComp
             if (pxa < drawArea.getX() || pxa > drawArea.getRight())
                 continue;
 
-            if (t > 0.1)
-            {
-                g.drawLine(pxa, drawArea.getY(), pxa, drawArea.getBottom() + ticklen, linewidth);
-            }
+            g.drawLine(pxa, drawArea.getY(), pxa, drawArea.getBottom() + ticklen, linewidth);
         }
 
         updateVTicks();

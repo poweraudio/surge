@@ -4,7 +4,7 @@
  *
  * Learn more at https://surge-synthesizer.github.io/
  *
- * Copyright 2018-2023, various authors, as described in the GitHub
+ * Copyright 2018-2024, various authors, as described in the GitHub
  * transaction log.
  *
  * Surge XT is released under the GNU General Public Licence v3
@@ -728,5 +728,27 @@ void OverlayWrapper::onSkinChanged()
     repaint();
 }
 
+void OverlayWrapper::onClose()
+{
+    auto pc = getPrimaryChildAsOverlayComponent();
+    if (pc && pc->getPreCloseChickenBoxMessage().has_value())
+    {
+        auto pcm = *(pc->getPreCloseChickenBoxMessage());
+        editor->alertYesNo(
+            pcm.first, pcm.second,
+            [this]() {
+                closeOverlay();
+                if (isTornOut())
+                    tearOutParent.reset(nullptr);
+            },
+            [pc]() { pc->grabKeyboardFocus(); });
+    }
+    else
+    {
+        closeOverlay();
+        if (isTornOut())
+            tearOutParent.reset(nullptr);
+    }
+}
 } // namespace Overlays
 } // namespace Surge

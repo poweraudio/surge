@@ -4,7 +4,7 @@
  *
  * Learn more at https://surge-synthesizer.github.io/
  *
- * Copyright 2018-2023, various authors, as described in the GitHub
+ * Copyright 2018-2024, various authors, as described in the GitHub
  * transaction log.
  *
  * Surge XT is released under the GNU General Public Licence v3
@@ -79,10 +79,12 @@ class ADSRModulationSource : public ModulationSource
         _discharge = 0.f;
     }
 
-    void retrigger()
+    void retrigger() { retriggerFrom(0.f); }
+
+    void retriggerFrom(float start)
     {
         if (envstate < s_release)
-            attack();
+            attackFrom(start);
     }
 
     virtual void attack() override { attackFrom(0.f); }

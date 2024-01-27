@@ -4,7 +4,7 @@
  *
  * Learn more at https://surge-synthesizer.github.io/
  *
- * Copyright 2018-2023, various authors, as described in the GitHub
+ * Copyright 2018-2024, various authors, as described in the GitHub
  * transaction log.
  *
  * Surge XT is released under the GNU General Public Licence v3
@@ -628,7 +628,7 @@ void SineOscillator::process_block_internal(float pitch, float drift, float fmde
     fv = limit_range(fv, -1.0e6f, 1.0e6f);
 
     FMdepth.newValue(fv);
-    FB.newValue(abs(fb_val));
+    FB.newValue(fb_val);
 
     float p alignas(16)[MAX_UNISON];
     float sx alignas(16)[MAX_UNISON];
@@ -640,7 +640,6 @@ void SineOscillator::process_block_internal(float pitch, float drift, float fmde
         p[i] = 0.0;
 
     auto outattensse = _mm_set1_ps(out_attenuation);
-    auto fbnegmask = _mm_cmplt_ps(_mm_set1_ps(fb_val), _mm_setzero_ps());
     __m128 playramp[4], dramp[4];
     if (firstblock)
     {
@@ -685,7 +684,8 @@ void SineOscillator::process_block_internal(float pitch, float drift, float fmde
 
         float fmpd = FM ? FMdepth.v * master_osc[k] : 0.f;
         auto fmpds = _mm_set1_ps(fmpd);
-        auto fbv = _mm_set1_ps(FB.v);
+        auto fbv = _mm_set1_ps(std::fabs(FB.v));
+        auto fbnegmask = _mm_cmplt_ps(_mm_set1_ps(FB.v), _mm_setzero_ps());
 
         for (int u = 0; u < n_unison; u += 4)
         {

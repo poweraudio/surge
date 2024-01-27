@@ -4,7 +4,7 @@
  *
  * Learn more at https://surge-synthesizer.github.io/
  *
- * Copyright 2018-2023, various authors, as described in the GitHub
+ * Copyright 2018-2024, various authors, as described in the GitHub
  * transaction log.
  *
  * Surge XT is released under the GNU General Public Licence v3
@@ -847,8 +847,10 @@ void FormulaModulatorEditor::showPreludeCode()
 
 void FormulaModulatorEditor::escapeKeyPressed()
 {
-    if (controlArea->applyS->isEnabled())
+    auto pcm = getPreCloseChickenBoxMessage();
+    if (pcm.has_value())
     {
+        auto pcp = *pcm;
         auto cb = [this]() {
             auto c = getParentComponent();
             while (c)
@@ -862,10 +864,7 @@ void FormulaModulatorEditor::escapeKeyPressed()
         };
         auto nocb = [this]() { grabKeyboardFocus(); };
 
-        editor->alertYesNo("Close Formula Editor",
-                           "Do you really want to close the formula editor? Any "
-                           "changes that were not applied will be lost!",
-                           cb, nocb);
+        editor->alertYesNo(pcp.first, pcp.second, cb, nocb);
     }
     else
     {
@@ -880,6 +879,18 @@ void FormulaModulatorEditor::escapeKeyPressed()
         }
     }
     return;
+}
+
+std::optional<std::pair<std::string, std::string>>
+FormulaModulatorEditor::getPreCloseChickenBoxMessage()
+{
+    if (controlArea->applyS->isEnabled())
+    {
+        return std::make_pair("Close Formula Editor",
+                              "Do you really want to close the formula editor? Any "
+                              "changes that were not applied will be lost!");
+    }
+    return std::nullopt;
 }
 
 struct WavetablePreviewComponent : juce::Component

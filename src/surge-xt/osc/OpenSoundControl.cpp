@@ -4,7 +4,7 @@
  *
  * Learn more at https://surge-synthesizer.github.io/
  *
- * Copyright 2018-2023, various authors, as described in the GitHub
+ * Copyright 2018-2024, various authors, as described in the GitHub
  * transaction log.
  *
  * Surge XT is released under the GNU General Public Licence v3
@@ -205,7 +205,7 @@ void OpenSoundControl::oscMessageReceived(const juce::OSCMessage &message)
         std::getline(split, address1, '/');
         addr = addr.substr(2);
         // Currently, only params may be queried
-        if ((address1 != "param") && (address1 != "all_params"))
+        if ((address1 != "param") && (address1 != "all_params") && (address1 != "all_mods"))
         {
             sendError("No query available for '" + address1 + "'");
             return;
@@ -213,6 +213,11 @@ void OpenSoundControl::oscMessageReceived(const juce::OSCMessage &message)
         if (address1 == "all_params")
         {
             OpenSoundControl::sendAllParams();
+            return;
+        }
+        if (address1 == "all_mods")
+        {
+            OpenSoundControl::sendAllModulators();
             return;
         }
     }
@@ -511,11 +516,13 @@ void OpenSoundControl::oscMessageReceived(const juce::OSCMessage &message)
             if (querying)
             {
                 int deac_mask = synth->storage.getPatch().fx_disable.val.i;
-                std::string deactivated = ((deac_mask & selected_mask) > 0) ? "yes" : "no";
+                bool isDeact = (deac_mask & selected_mask) > 0;
+                std::string deactivated = isDeact ? "deactivated" : "activated";
                 std::string addr = "/param/" + shortOSCname + "/deactivate";
+                float val = (float)isDeact;
                 if (!this->juceOSCSender.send(
-                        juce::OSCMessage(juce::String(addr), juce::String(deactivated))))
-                    std::cout << "Error: could not send OSC message.";
+                        juce::OSCMessage(juce::String(addr), val, juce::String(deactivated))))
+                    sendFailed();
             }
             else
             {
@@ -699,15 +706,22 @@ void OpenSoundControl::oscMessageReceived(const juce::OSCMessage &message)
     // Modulation mapping
     else if (address1 == "mod")
     {
-        if (message.size() != 2)
+        bool muteMsg = false;
+        if (message.size() < 2)
         {
             sendDataCountError("mod", "2");
             return;
         }
 
+        std::getline(split, address2, '/');
+        if (address2 == "mute")
+        {
+            muteMsg = true;
+            std::getline(split, address2, '/');
+        }
+
         int mscene = 0;
         bool scene_specified = false;
-        std::getline(split, address2, '/');
         if ((address2 == "a") || (address2 == "b"))
         {
             scene_specified = true;
@@ -789,8 +803,24 @@ void OpenSoundControl::oscMessageReceived(const juce::OSCMessage &message)
             sendError("Not a valid modulation.");
             return;
         }
-
-        sspPtr->oscRingBuf.push(SurgeSynthProcessor::oscToAudio(p, modnum, mscene, index, depth));
+        if (muteMsg)
+            sspPtr->oscRingBuf.push(
+                SurgeSynthProcessor::oscToAudio(p, modnum, mscene, index, depth, true));
+        else
+            sspPtr->oscRingBuf.push(
+                SurgeSynthProcessor::oscToAudio(p, modnum, mscene, index, depth));
+    }
+    if (!synth->audio_processing_active)
+    {
+        // Audio isn't running so the queue wont be drained.
+        // In this case do the (slightly hacky) drain-on-this-thread
+        // approach. There's a small race condition here in that if
+        // processing restarts while we have a message we are doing
+        // here then maybe we go blammo. That's a super-duper edge
+        // case which i'll mention here but not fix. (The fix is probably
+        // to have an atomic book in processBlock and properly atomic
+        // compare and set it and return if two threads are in process).
+        sspPtr->processBlockOSC();
     }
 }
 
@@ -825,31 +855,6 @@ void OpenSoundControl::oscBundleReceived(const juce::OSCBundle &bundle)
     }
 }
 
-/*
-float OpenSoundControl::getNormValue(Parameter *p, float fval)
-{
-    pdata onto;
-    std::string text, errMsg;
-    std::stringstream ss;
-
-    ss << std::fixed << std::setprecision(10) << fval;
-    text = ss.str();
-
-    if (p->set_value_from_string_onto(text, onto, errMsg))
-    {
-        if (p->valtype == vt_float)
-            return p->value_to_normalized((float)onto.f);
-        if (p->valtype == vt_int)
-            return p->value_to_normalized((float)onto.i);
-        if (p->valtype == vt_bool)
-            return p->value_to_normalized((float)onto.b);
-    }
-    else
-        sendError("Natural-ranged parameter (via OSC): " + errMsg);
-    return 0;
-}
-*/
-
 /* ----- OSC Sending  ----- */
 
 bool OpenSoundControl::initOSCOut(int port, std::string ipaddr)
@@ -871,8 +876,12 @@ bool OpenSoundControl::initOSCOut(int port, std::string ipaddr)
     synth->addPatchLoadedListener("OSC_OUT", [ssp = sspPtr](auto s) { ssp->patch_load_to_OSC(s); });
 
     // Add a listener for parameter changes
-    sspPtr->addParamChangeListener(
-        "OSC_OUT", [ssp = sspPtr](auto str1, auto str2) { ssp->param_change_to_OSC(str1, str2); });
+    sspPtr->addParamChangeListener("OSC_OUT",
+                                   [ssp = sspPtr](auto str1, auto bool1, auto float1, auto str2) {
+                                       ssp->param_change_to_OSC(str1, bool1, float1, str2);
+                                   });
+    // Add a listener for modulation changes
+    synth->addModulationAPIListener(this);
 
     sendingOSC = true;
     oportnum = port;
@@ -913,13 +922,32 @@ void OpenSoundControl::send(std::string addr, std::string msg)
 {
     if (sendingOSC)
     {
+        juce::OSCMessage om = juce::OSCMessage(juce::OSCAddressPattern(juce::String(addr)));
+        om.addString(msg);
         // Runs on the juce messenger thread
-        juce::MessageManager::getInstance()->callAsync([this, msg, addr]() {
-            if (!this->juceOSCSender.send(juce::OSCMessage(juce::String(addr), juce::String(msg))))
-                std::cout << "Error: could not send OSC message.";
+        juce::MessageManager::getInstance()->callAsync([this, om]() {
+            if (!this->juceOSCSender.send(om))
+                sendFailed();
         });
     }
 }
+
+void OpenSoundControl::send(std::string addr, float fval, std::string msg)
+{
+    if (sendingOSC)
+    {
+        juce::OSCMessage om = juce::OSCMessage(juce::OSCAddressPattern(juce::String(addr)));
+        om.addFloat32(fval);
+        om.addString(msg);
+        // Runs on the juce messenger thread
+        juce::MessageManager::getInstance()->callAsync([this, om]() {
+            if (!this->juceOSCSender.send(om))
+                sendFailed();
+        });
+    }
+}
+
+void OpenSoundControl::sendFailed() { std::cout << "Error: could not send OSC message."; }
 
 void OpenSoundControl::sendError(std::string errorMsg)
 {
@@ -968,12 +996,110 @@ void OpenSoundControl::sendAllParams()
     }
 }
 
+// Loop through all modulators, send them to OSC Out
+void OpenSoundControl::sendAllModulators()
+{
+    if (sendingOSC)
+    {
+        // Runs on the juce messenger thread
+        juce::MessageManager::getInstance()->callAsync([this]() {
+            // auto timer = new Surge::Debug::TimeBlock("ModulatorDump");
+            std::vector<ModulationRouting> modlist_global =
+                synth->storage.getPatch().modulation_global;
+            std::vector<ModulationRouting> modlist_scene_A_scene =
+                synth->storage.getPatch().scene[0].modulation_scene;
+            std::vector<ModulationRouting> modlist_scene_B_scene =
+                synth->storage.getPatch().scene[1].modulation_scene;
+            std::vector<ModulationRouting> modlist_scene_A_voice =
+                synth->storage.getPatch().scene[0].modulation_voice;
+            std::vector<ModulationRouting> modlist_scene_B_voice =
+                synth->storage.getPatch().scene[1].modulation_voice;
+
+            for (ModulationRouting mod : modlist_global)
+                sendModulator(mod, 0, true);
+            for (ModulationRouting mod : modlist_scene_A_scene)
+                sendModulator(mod, 0, false);
+            for (ModulationRouting mod : modlist_scene_B_scene)
+                sendModulator(mod, 1, false);
+            for (ModulationRouting mod : modlist_scene_A_voice)
+                sendModulator(mod, 0, false);
+            for (ModulationRouting mod : modlist_scene_B_voice)
+                sendModulator(mod, 1, false);
+        });
+    }
+}
+
+bool OpenSoundControl::sendModulator(ModulationRouting mod, int scene, bool global)
+{
+    bool supIndex = synth->supportsIndexedModulator(0, (modsources)mod.source_id);
+    int modIndex = 0;
+    if (supIndex)
+    {
+        modIndex = mod.source_index;
+    }
+    std::string addr = getModulatorOSCAddr(mod.source_id, scene, modIndex, false);
+
+    int offset = global ? 0 : synth->storage.getPatch().scene_start[scene];
+    Parameter *p = synth->storage.getPatch().param_ptr[mod.destination_id + offset];
+    float val = synth->getModDepth01(p->id, (modsources)mod.source_id, scene, modIndex);
+    // Send mod-to-param mapping and depth
+    if (!modOSCout(addr, p->oscName, val, false))
+        return false;
+    // Now send the mute status for this mapping
+    val = mod.muted ? 1.0 : 0.0;
+    return (modOSCout(addr, p->oscName, val, true));
+}
+
+bool OpenSoundControl::modOSCout(std::string addr, std::string oscName, float val, bool reportMute)
+{
+    std::string paramAddr = addr;
+    if (reportMute)
+        paramAddr = addr.insert(4, "/mute");
+    juce::OSCMessage om = juce::OSCMessage(juce::OSCAddressPattern(juce::String(addr)));
+    om.addString(oscName);
+    om.addFloat32(val);
+
+    if (!this->juceOSCSender.send(om))
+    {
+        sendFailed();
+        return false;
+    }
+
+    return true;
+}
+
+std::string OpenSoundControl::getModulatorOSCAddr(int modid, int scene, int index, bool mute)
+{
+    std::string modName = modsource_names_tag[modid];
+    std::string sceneStr = "";
+    std::string indexStr = "";
+    std::string muteStr = "";
+
+    bool useScene = synth->isModulatorDistinctPerScene((modsources)modid);
+    if (useScene)
+    {
+        if (scene == 0)
+            sceneStr = "a/";
+        else if (scene == 1)
+            sceneStr = "b/";
+    }
+
+    bool supIndex = synth->supportsIndexedModulator(0, (modsources)modid);
+    if (supIndex)
+        indexStr = "/" + std::to_string(index);
+
+    if (mute)
+        muteStr = "mute/";
+
+    return ("/mod/" + muteStr + sceneStr + modName + indexStr);
+}
+
 bool OpenSoundControl::sendMacro(long macnum)
 {
     auto cms = ((ControllerModulationSource *)synth->storage.getPatch()
                     .scene[0]
                     .modsources[macnum + ms_ctrl1]);
-    auto valStr = float_to_clocalestr_wprec(100 * cms->get_output(0), 3);
+    auto valStr = float_to_clocalestr_wprec(100 * cms->get_output(0), 3) + " %";
     float val01 = cms->get_output01(0);
     std::string addr = "/param/macro/" + std::to_string(macnum + 1);
 
@@ -983,7 +1109,7 @@ bool OpenSoundControl::sendMacro(long macnum)
         om.addString(valStr);
     if (!this->juceOSCSender.send(om))
     {
-        std::cout << "Error: could not send OSC message.";
+        sendFailed();
         return false;
     }
 
@@ -994,6 +1120,7 @@ bool OpenSoundControl::sendParameter(const Parameter *p)
 {
     std::string valStr = "";
     float val01 = 0.0;
+    valStr = p->get_display(false, 0.0);
 
     switch (p->valtype)
     {
@@ -1007,8 +1134,7 @@ bool OpenSoundControl::sendParameter(const Parameter *p)
 
     case vt_float:
     {
-        val01 = p->val.f;
-        valStr = p->get_display(false, 0.0);
+        val01 = p->value_to_normalized(p->val.f);
     }
     break;
 
@@ -1022,11 +1148,40 @@ bool OpenSoundControl::sendParameter(const Parameter *p)
         om.addString(valStr);
     if (!this->juceOSCSender.send(om))
     {
-        std::cout << "Error: could not send OSC message.";
+        sendFailed();
         return false;
     }
-
     return true;
+}
+
+// Under construction, but tested as safe!
+void OpenSoundControl::modSet(long ptag, modsources modsource, int modsourceScene, int index,
+                              float val, bool isNew)
+{
+    sendMod(ptag, modsource, modsourceScene, index, val, false);
+}
+
+void OpenSoundControl::modMuted(long ptag, modsources modsource, int modsourceScene, int index,
+                                bool mute)
+{
+    sendMod(ptag, modsource, modsourceScene, index, mute ? 1.0 : 0.0, true);
+}
+
+void OpenSoundControl::modCleared(long ptag, modsources modsource, int modsourceScene, int index)
+{
+    sendMod(ptag, modsource, modsourceScene, index, 0.0, false);
+}
+
+void OpenSoundControl::sendMod(long ptag, modsources modsource, int modSourceScene, int index,
+                               float val, bool mute)
+{
+    // Runs on the juce messenger thread
+    juce::MessageManager::getInstance()->callAsync(
+        [this, ptag, modsource, modSourceScene, index, val, mute]() {
+            std::string modOSCaddr = getModulatorOSCAddr(modsource, modSourceScene, index, mute);
+            Parameter *param = synth->storage.getPatch().param_ptr[ptag];
+            modOSCout(modOSCaddr, param->get_osc_name(), val, false);
+        });
 }
 
 } // namespace OSC

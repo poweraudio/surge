@@ -4,7 +4,7 @@
  *
  * Learn more at https://surge-synthesizer.github.io/
  *
- * Copyright 2018-2023, various authors, as described in the GitHub
+ * Copyright 2018-2024, various authors, as described in the GitHub
  * transaction log.
  *
  * Surge XT is released under the GNU General Public Licence v3
@@ -358,7 +358,8 @@ class SurgeSynthProcessor : public juce::AudioProcessor,
         ALLNOTESOFF,
         ALLSOUNDOFF,
         MOD,
-        FX_DISABLE
+        FX_DISABLE,
+        MOD_MUTE
     };
 
     struct oscToAudio
@@ -381,6 +382,10 @@ class SurgeSynthProcessor : public juce::AudioProcessor,
             : type(MOD), param(p), ival(modulator), scene(sc), index(idx), fval(depth)
         {
         }
+        oscToAudio(Parameter *p, int modulator, int sc, int idx, float depth, bool mute)
+            : type(MOD_MUTE), param(p), ival(modulator), scene(sc), index(idx), fval(depth)
+        {
+        }
         oscToAudio(float freq, char velocity, bool noteon, int32_t nid)
             : type(FREQNOTE), fval(freq), vel(velocity), on(noteon), noteid(nid)
         {
@@ -391,7 +396,7 @@ class SurgeSynthProcessor : public juce::AudioProcessor,
         }
         oscToAudio(oscToAudio_type type, int32_t nid, float f) : type(type), noteid(nid), fval(f) {}
     };
-    sst::cpputils::SimpleRingBuffer<oscToAudio, 1024> oscRingBuf; // was 4096
+    sst::cpputils::SimpleRingBuffer<oscToAudio, 4096> oscRingBuf;
 
     Surge::OSC::OpenSoundControl oscHandler;
     std::atomic<bool> oscCheckStartup{false};
@@ -405,7 +410,7 @@ class SurgeSynthProcessor : public juce::AudioProcessor,
     void initOSCError(int port, std::string outIP = "");
 
     void patch_load_to_OSC(fs::path newpath);
-    void param_change_to_OSC(std::string paramPath, std::string valStr);
+    void param_change_to_OSC(std::string paramPath, bool hasFloat, float value, std::string valStr);
     enum specialCaseType
     {
         SCT_MACRO,
@@ -413,7 +418,7 @@ class SurgeSynthProcessor : public juce::AudioProcessor,
     };
 
     void paramChangeToListeners(Parameter *p, bool isSpecialCase = false, int specialCaseType = -1,
-                                int macronum = 0, std::string newValue = "");
+                                int macronum = 0, float fval = 0.0, std::string newValue = "");
 
     // --- 'param change' listener(s) ----
     // Listeners are notified whenever a parameter finishes changing, along with the new value.
@@ -421,11 +426,12 @@ class SurgeSynthProcessor : public juce::AudioProcessor,
     // paramChangeListener calls OSCSender::send(), which runs on a juce::MessageManager thread.
     //
     // Be sure to delete any added listeners in the destructor of the class that added them.
-    std::unordered_map<std::string, std::function<void(const std::string &, const std::string &)>>
+    std::unordered_map<std::string, std::function<void(const std::string &, const bool, const float,
+                                                       const std::string &)>>
         paramChangeListeners;
-    void
-    addParamChangeListener(std::string key,
-                           std::function<void(const std::string &, const std::string &)> const &l)
+    void addParamChangeListener(std::string key,
+                                std::function<void(const std::string &, const bool, const float,
+                                                   const std::string &)> const &l)
     {
         paramChangeListeners.insert({key, l});
     }
@@ -488,6 +494,10 @@ class SurgeSynthProcessor : public juce::AudioProcessor,
                            uint32_t & /*pageID*/, juce::String & /*pageName*/,
                            std::array<juce::AudioProcessorParameter *, CLAP_REMOTE_CONTROLS_COUNT>
                                & /*params*/) noexcept override;
+
+    bool supportsPresetLoad() const noexcept override { return true; }
+    bool presetLoadFromLocation(uint32_t /*location_kind*/, const char * /*location*/,
+                                const char * /*load_key*/) noexcept override;
 #endif
 
   private:
@@ -517,8 +527,16 @@ class SurgeSynthProcessor : public juce::AudioProcessor,
   public:
     std::unique_ptr<Surge::GUI::UndoManager> undoManager;
 
+#if HAS_CLAP_JUCE_EXTENSIONS
+    static const void *getSurgePresetDiscoveryFactory();
+#endif
+
   private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SurgeSynthProcessor)
 };
+
+#if HAS_CLAP_JUCE_EXTENSIONS
+extern const void *JUCE_CALLTYPE clapJuceExtensionCustomFactory(const char *);
+#endif
 
 #endif // SURGE_SRC_SURGE_XT_SURGESYNTHPROCESSOR_H

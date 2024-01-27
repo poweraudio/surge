@@ -4,7 +4,7 @@
  *
  * Learn more at https://surge-synthesizer.github.io/
  *
- * Copyright 2018-2023, various authors, as described in the GitHub
+ * Copyright 2018-2024, various authors, as described in the GitHub
  * transaction log.
  *
  * Surge XT is released under the GNU General Public Licence v3
@@ -1242,8 +1242,6 @@ void Oscilloscope::visibilityChanged()
         storage_->audioOut.unsubscribe();
     }
 }
-
-bool Oscilloscope::wantsInitialKeyboardFocus() { return false; }
 
 // Lock for member variables must be held by the caller.
 void Oscilloscope::calculateSpectrumData()

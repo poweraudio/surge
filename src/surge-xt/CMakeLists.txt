@@ -61,7 +61,7 @@ if(SURGE_BUILD_CLAP)
   clap_juce_extensions_plugin(TARGET surge-xt
     CLAP_ID "org.surge-synth-team.surge-xt"
 
-    # CLAP_SUPPORTS_CUSTOM_FACTORY 1
+    CLAP_SUPPORTS_CUSTOM_FACTORY 1
     CLAP_FEATURES "instrument" "synthesizer" "hybrid" "free and open source")
 endif()
 
@@ -74,6 +74,8 @@ target_sources(${PROJECT_NAME} PRIVATE
   SurgeSynthEditor.h
   SurgeSynthProcessor.cpp
   SurgeSynthProcessor.h
+
+  SurgeCLAPPresetDiscovery.cpp
 
   util/LockFreeStack.h
 
@@ -137,6 +139,7 @@ target_sources(${PROJECT_NAME} PRIVATE
   gui/overlays/TypeinParamEditor.h
   gui/overlays/WaveShaperAnalysis.cpp
   gui/overlays/WaveShaperAnalysis.h
+  gui/overlays/OpenSoundControlSettings.cpp
   gui/widgets/EffectChooser.cpp
   gui/widgets/EffectChooser.h
   gui/widgets/EffectLabel.h
@@ -243,4 +246,6 @@ endif()
 
 surge_juce_package(${PROJECT_NAME} "Surge XT")
 
-add_subdirectory(xt-tests)
+if (${SURGE_BUILD_TESTRUNNER})
+  add_subdirectory(xt-tests)
+endif()

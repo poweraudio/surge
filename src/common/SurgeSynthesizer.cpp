@@ -4,7 +4,7 @@
  *
  * Learn more at https://surge-synthesizer.github.io/
  *
- * Copyright 2018-2023, various authors, as described in the GitHub
+ * Copyright 2018-2024, various authors, as described in the GitHub
  * transaction log.
  *
  * Surge XT is released under the GNU General Public Licence v3
@@ -2994,7 +2994,11 @@ bool SurgeSynthesizer::loadFx(bool initp, bool force_reload_all)
                         {
                             for (int sc = 0; sc < n_scenes; ++sc)
                             {
-                                clearModulation(p->id, (modsources)ms, sc, true);
+                                auto mi = getModulationIndicesBetween(p->id, (modsources)ms, sc);
+                                for (auto m : mi)
+                                {
+                                    clearModulation(p->id, (modsources)ms, sc, m, true);
+                                }
                             }
                         }
                     }
@@ -3005,6 +3009,9 @@ bool SurgeSynthesizer::loadFx(bool initp, bool force_reload_all)
                             setModDepth01(storage.getPatch().fx[s].p[t.whichForReal].id,
                                           (modsources)t.source_id, t.source_scene, t.source_index,
                                           t.depth);
+                            muteModulation(storage.getPatch().fx[s].p[t.whichForReal].id,
+                                           (modsources)t.source_id, t.source_scene, t.source_index,
+                                           t.muted);
                         }
                         fxmodsync[s].clear();
                         fx_reload_mod[s] = false;
@@ -3022,7 +3029,11 @@ bool SurgeSynthesizer::loadFx(bool initp, bool force_reload_all)
                     {
                         for (int sc = 0; sc < n_scenes; sc++)
                         {
-                            clearModulation(p->id, (modsources)ms, sc, true);
+                            auto mi = getModulationIndicesBetween(p->id, (modsources)ms, sc);
+                            for (auto m : mi)
+                            {
+                                clearModulation(p->id, (modsources)ms, sc, m, true);
+                            }
                         }
                     }
                 }
@@ -5253,8 +5264,11 @@ void SurgeSynthesizer::reorderFx(int source, int target, FXReorderMode m)
             auto depth =
                 getModDepth01(fxsync[source].p[whichForReal].id, (modsources)mv->at(i).source_id,
                               mv->at(i).source_scene, mv->at(i).source_index);
+            auto mut = isModulationMuted(fxsync[source].p[whichForReal].id,
+                                         (modsources)mv->at(i).source_id, mv->at(i).source_scene,
+                                         mv->at(i).source_index);
             fxmodsync[target].push_back({mv->at(i).source_id, mv->at(i).source_scene,
-                                         mv->at(i).source_index, whichForReal, depth});
+                                         mv->at(i).source_index, whichForReal, depth, mut});
         }
 
         if (m == FXReorderMode::SWAP)
@@ -5276,8 +5290,11 @@ void SurgeSynthesizer::reorderFx(int source, int target, FXReorderMode m)
                 auto depth = getModDepth01(fxsync[target].p[whichForReal].id,
                                            (modsources)mv->at(i).source_id, mv->at(i).source_scene,
                                            mv->at(i).source_index);
+                auto mut = isModulationMuted(fxsync[target].p[whichForReal].id,
+                                             (modsources)mv->at(i).source_id,
+                                             mv->at(i).source_scene, mv->at(i).source_index);
                 fxmodsync[source].push_back({mv->at(i).source_id, mv->at(i).source_scene,
-                                             mv->at(i).source_index, whichForReal, depth});
+                                             mv->at(i).source_index, whichForReal, depth, mut});
             }
         }
 

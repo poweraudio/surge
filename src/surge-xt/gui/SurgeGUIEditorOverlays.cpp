@@ -4,7 +4,7 @@
  *
  * Learn more at https://surge-synthesizer.github.io/
  *
- * Copyright 2018-2023, various authors, as described in the GitHub
+ * Copyright 2018-2024, various authors, as described in the GitHub
  * transaction log.
  *
  * Surge XT is released under the GNU General Public Licence v3
@@ -32,6 +32,7 @@
 #include "overlays/Oscilloscope.h"
 #include "overlays/OverlayWrapper.h"
 #include "overlays/KeyBindingsOverlay.h"
+#include "overlays/OpenSoundControlSettings.h"
 #include "widgets/MainFrame.h"
 #include "widgets/WaveShaperSelector.h"
 #include "UserDefaults.h"
@@ -283,6 +284,24 @@ std::unique_ptr<Surge::Overlays::OverlayComponent> SurgeGUIEditor::createOverlay
     {
         return makeStorePatchDialog();
     }
+
+    case OPEN_SOUND_CONTROL_SETTINGS:
+    {
+        auto te = std::make_unique<Surge::Overlays::OpenSoundControlSettings>();
+
+        te->setStorage(&(this->synth->storage));
+        te->setSurgeGUIEditor(this);
+        te->setSkin(currentSkin, bitmapStore);
+        te->setEnclosingParentTitle("Open Sound Control Settings");
+
+        auto posRect =
+            juce::Rectangle<int>(0, 0, 500, 230).withCentre(frame->getBounds().getCentre());
+
+        te->setEnclosingParentPosition(posRect);
+
+        return te;
+    }
+    break;
 
     case TUNING_EDITOR:
     {

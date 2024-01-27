@@ -4,7 +4,7 @@
  *
  * Learn more at https://surge-synthesizer.github.io/
  *
- * Copyright 2018-2023, various authors, as described in the GitHub
+ * Copyright 2018-2024, various authors, as described in the GitHub
  * transaction log.
  *
  * Surge XT is released under the GNU General Public Licence v3
@@ -401,7 +401,7 @@ struct ModulationListContents : public juce::Component, public Surge::GUI::SkinC
                         datum.source_scene, datum.source_index, Surge::GUI::UndoManager::UNDO);
                     me->synth->clearModulation(datum.destination_id + datum.idBase,
                                                (modsources)datum.source_id, datum.source_scene,
-                                               datum.source_index);
+                                               datum.source_index, false);
                     // The rebuild may delete this so defer
                     auto c = contents;
                     juce::Timer::callAfterDelay(1, [c, me]() {
@@ -481,6 +481,34 @@ struct ModulationListContents : public juce::Component, public Surge::GUI::SkinC
             setAccessible(true);
             setFocusContainerType(juce::Component::FocusContainerType::focusContainer);
             resetValuesFromDatum();
+        }
+
+        void controlBeginEdit(GUI::IComponentTagValue *control) override
+        {
+            auto synth = contents->editor->ed->synth;
+            for (auto l : contents->editor->ed->synth->modListeners)
+            {
+                auto p = synth->storage.getPatch().param_ptr[datum.destination_id + datum.idBase];
+
+                auto nm01 = control->getValue() * 2.f - 1.f;
+
+                l->modBeginEdit(p->id, (modsources)datum.source_id, datum.source_scene,
+                                datum.source_index, nm01);
+            }
+        }
+
+        void controlEndEdit(GUI::IComponentTagValue *control) override
+        {
+            auto synth = contents->editor->ed->synth;
+            for (auto l : contents->editor->ed->synth->modListeners)
+            {
+                auto p = synth->storage.getPatch().param_ptr[datum.destination_id + datum.idBase];
+
+                auto nm01 = control->getValue() * 2.f - 1.f;
+
+                l->modEndEdit(p->id, (modsources)datum.source_id, datum.source_scene,
+                              datum.source_index, nm01);
+            }
         }
 
         void resetValuesFromDatum()

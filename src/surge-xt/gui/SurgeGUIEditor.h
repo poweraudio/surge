@@ -4,7 +4,7 @@
  *
  * Learn more at https://surge-synthesizer.github.io/
  *
- * Copyright 2018-2023, various authors, as described in the GitHub
+ * Copyright 2018-2024, various authors, as described in the GitHub
  * transaction log.
  *
  * Surge XT is released under the GNU General Public Licence v3
@@ -247,13 +247,14 @@ class SurgeGUIEditor : public Surge::GUI::IComponentTagValue::Listener,
     modsources getSelectedModsource() { return modsource; }
     void setModsourceSelected(modsources ms, int ms_idx = 0);
 
+    SurgeSynthesizer *synth = nullptr;
+
   private:
     void openOrRecreateEditor();
     std::unique_ptr<Surge::Overlays::OverlayComponent> makeStorePatchDialog();
     void close_editor();
     bool isControlVisible(ControlGroup controlGroup, int controlGroupEntry);
     void repushAutomationFor(Parameter *p);
-    SurgeSynthesizer *synth = nullptr;
     bool editor_open = false;
     bool mod_editor = false;
     modsources modsource = ms_lfo1, modsource_editor[n_scenes] = {ms_lfo1, ms_lfo1};
@@ -394,6 +395,7 @@ class SurgeGUIEditor : public Surge::GUI::IComponentTagValue::Listener,
         OSCILLOSCOPE,
         KEYBINDINGS_EDITOR,
         ACTION_HISTORY,
+        OPEN_SOUND_CONTROL_SETTINGS,
 
         n_overlay_tags,
     };
@@ -527,6 +529,9 @@ class SurgeGUIEditor : public Surge::GUI::IComponentTagValue::Listener,
     const fs::path pathForCurrentPatch();
     void ensureParameterItemIsFocused(Parameter *p);
     void setPatchFromUndo(void *data, size_t datasz);
+
+    void playNote(char key, char vel);
+    void releaseNote(char key, char vel);
 
   private:
     juce::Rectangle<int> positionForModulationGrid(modsources entry);
