@@ -23,12 +23,14 @@ surge_add_lib_subdirectory(pffft)
 surge_add_lib_subdirectory(tuning-library)
 surge_add_lib_subdirectory(sqlite-3.23.3)
 
-option(SURGE_USE_SYSTEM_LUA "Use system Lua instead of LuaJIT" OFF)
-
 if(${CMAKE_SYSTEM_PROCESSOR} MATCHES "^ppc")
   # PowerPC/Power processors aren't supported by LuaJIT.
-  set(SURGE_USE_SYSTEM_LUA ON)
+  set(LUAJIT_UNSUPPORTED_ARCH TRUE)
+else()
+  set(LUAJIT_UNSUPPORTED_ARCH FALSE)
 endif()
+
+option(SURGE_USE_SYSTEM_LUA "Use system Lua instead of LuaJIT" ${LUAJIT_UNSUPPORTED_ARCH})
 
 if(NOT SURGE_SKIP_LUA)
   if(SURGE_USE_SYSTEM_LUA)
