@@ -36,6 +36,7 @@
 #include "widgets/MainFrame.h"
 #include "widgets/WaveShaperSelector.h"
 #include "UserDefaults.h"
+#include "SurgeSynthEditor.h"
 
 std::unique_ptr<Surge::Overlays::OverlayComponent> SurgeGUIEditor::makeStorePatchDialog()
 {
@@ -295,7 +296,7 @@ std::unique_ptr<Surge::Overlays::OverlayComponent> SurgeGUIEditor::createOverlay
         te->setEnclosingParentTitle("Open Sound Control Settings");
 
         auto posRect =
-            juce::Rectangle<int>(0, 0, 500, 230).withCentre(frame->getBounds().getCentre());
+            juce::Rectangle<int>(0, 0, 300, 140).withCentre(frame->getBounds().getCentre());
 
         te->setEnclosingParentPosition(posRect);
 
@@ -612,6 +613,7 @@ Surge::Overlays::OverlayWrapper *SurgeGUIEditor::addJuceEditorOverlay(
     {
         ol->setCanTearOut(olc->getCanTearOut());
         ol->setCanTearOutResize(olc->getCanTearOutResize());
+        ol->setRetainOpenStateOnEditorRecreate(olc->getRetainOpenStateOnEditorRecreate());
     }
 
     ol->addAndTakeOwnership(std::move(c));

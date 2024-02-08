@@ -745,6 +745,12 @@ void SurgeGUIEditor::idle()
             overlaysForNextIdle.clear();
         }
 
+        auto ol = getOverlayIfOpenAs<Surge::Overlays::FormulaModulatorEditor>(FORMULA_EDITOR);
+        if (ol)
+        {
+            ol->updateDebuggerIfNeeded();
+        }
+
         if (synth->storage.getPatch()
                 .scene[current_scene]
                 .osc[current_osc[current_scene]]
@@ -6127,7 +6133,7 @@ void SurgeGUIEditor::populateDawExtraState(SurgeSynthesizer *synth)
     {
         auto olw = getOverlayWrapperIfOpen(ol.first);
 
-        if (olw)
+        if (olw && olw->getRetainOpenStateOnEditorRecreate())
         {
             DAWExtraStateStorage::EditorState::OverlayState os;
 

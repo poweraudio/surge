@@ -984,6 +984,8 @@ struct DAWExtraStateStorage
     std::string oscIPAddrOut{DEFAULT_OSC_IPADDR_OUT};
     bool oscStartIn{false};
     bool oscStartOut{false};
+
+    fs::path lastLoadedPatch{};
 };
 
 struct PatchTuningStorage
@@ -1207,6 +1209,7 @@ class alignas(16) SurgeStorage
     float samplerate{0}, samplerate_inv{1};
     double dsamplerate{0}, dsamplerate_inv{1};
     double dsamplerate_os{0}, dsamplerate_os_inv{1};
+    fs::path lastLoadedPatch{};
     // Ring buffer that holds the audio output, used for the oscilloscope. Will hold a bit under 1/4
     // second of data, assuming the sample rate is 48k.
     sst::cpputils::StereoRingBuffer<float, 8192> audioOut;
@@ -1327,7 +1330,7 @@ class alignas(16) SurgeStorage
     void setSamplerate(float sr);
     float cpu_falloff;
 
-    bool oscListenerRunning{false};
+    bool oscReceiving{false};
     bool oscSending{false};
 
     bool getOverrideDataHome(std::string &value);

@@ -667,18 +667,35 @@ void SurgeSynthesizer::freeVoice(SurgeVoice *v)
         }
     }
 
+    int foundScene{-1}, foundIndex{-1};
     for (int i = 0; i < MAX_VOICES; i++)
     {
         if (voices_usedby[0][i] && (v == &voices_array[0][i]))
         {
+            assert(foundScene == -1);
+            assert(foundIndex == -1);
+            foundScene = 0;
+            foundIndex = i;
             voices_usedby[0][i] = 0;
         }
         if (voices_usedby[1][i] && (v == &voices_array[1][i]))
         {
+            assert(foundScene == -1);
+            assert(foundIndex == -1);
+            foundScene = 1;
+            foundIndex = i;
             voices_usedby[1][i] = 0;
         }
     }
     v->freeAllocatedElements();
+
+    /*
+     * Call the SurgeVoice destructor here. But since SurgeVoice lives in an
+     * array it will be destroyed on exit also so re-construct it with the
+     * default on the same meory just to be pedantic
+     */
+    v->~SurgeVoice();
+    v = new (&voices_array[foundScene][foundIndex]) SurgeVoice();
 }
 
 void SurgeSynthesizer::notifyEndedNote(int32_t nid, int16_t key, int16_t chan, bool thisBlock)
@@ -805,6 +822,10 @@ void SurgeSynthesizer::playVoice(int scene, char channel, char key, char velocit
 
             if (nvoice)
             {
+                // This is a constructed voice which we are going to re-construct
+                // so run the destructor. See also the handling in freeVoice below
+                nvoice->~SurgeVoice();
+
                 int mpeMainChannel = getMpeMainChannel(channel, key);
 
                 voices[scene].push_back(nvoice);
@@ -4083,13 +4104,15 @@ void loadPatchInBackgroundThread(SurgeSynthesizer *sy)
     if (patchid >= 0)
     {
         Patch p = synth->storage.patch_list[synth->patchid];
+        synth->storage.lastLoadedPatch = p.path;
         for (auto &it : synth->patchLoadedListeners)
-            (it.second)(p.path.replace_extension());
+            (it.second)(p.path);
     }
     if (had_patchid_file)
     {
+        synth->storage.lastLoadedPatch = ppath;
         for (auto &it : synth->patchLoadedListeners)
-            (it.second)(ppath.replace_extension());
+            (it.second)(ppath);
     }
 
     // Now we want to null out the patchLoadThread since everything is done
@@ -4111,6 +4134,8 @@ void SurgeSynthesizer::processAudioThreadOpsWhenAudioEngineUnavailable(bool dang
         if (patchid_queue >= 0)
         {
             loadPatch(patchid_queue);
+            Patch p = storage.patch_list[patchid_queue];
+            storage.lastLoadedPatch = p.path;
             patchid_queue = -1;
         }
 
@@ -4132,10 +4157,13 @@ void SurgeSynthesizer::processAudioThreadOpsWhenAudioEngineUnavailable(bool dang
             if (ptid >= 0)
             {
                 loadPatch(ptid);
+                Patch patch = storage.patch_list[ptid];
+                storage.lastLoadedPatch = patch.path;
             }
             else
             {
                 loadPatchByPath(patchid_file, -1, s.c_str());
+                storage.lastLoadedPatch = p;
             }
             patchid_file[0] = 0;
         }
@@ -4961,6 +4989,8 @@ void SurgeSynthesizer::populateDawExtraState()
 
     des.monoPedalMode = storage.monoPedalMode;
     des.oddsoundRetuneMode = storage.oddsoundRetuneMode;
+
+    des.lastLoadedPatch = storage.lastLoadedPatch;
 }
 
 void SurgeSynthesizer::loadFromDawExtraState()
@@ -5073,6 +5103,8 @@ void SurgeSynthesizer::loadFromDawExtraState()
             storage.controllers_chan[i] = des.customcontrol_chan_map[i];
         }
     }
+
+    storage.lastLoadedPatch = des.lastLoadedPatch;
 }
 
 void SurgeSynthesizer::swapMetaControllers(int c1, int c2)
