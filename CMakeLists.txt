@@ -14,6 +14,16 @@ if(NOT BUILD_TESTING)
   option(BUILD_TESTING "" OFF)
 endif()
 
+option(LV2_ONLY "Build plugin only as LV2" OFF)
+if(LV2_ONLY)
+  set(SURGE_SKIP_VST3 ON CACHE BOOL "Don't build VST3")
+  set(SURGE_SKIP_STANDALONE ON CACHE BOOL "Don't build standalone")
+  set(SURGE_SKIP_CLAP ON CACHE BOOL "Don't build CLAP")
+  set(SURGE_SKIP_CLI ON CACHE BOOL "Don't build CLI")
+  set(SURGE_BUILD_LV2 ON CACHE BOOL "Build LV2")
+  set(SURGE_BUILD_TESTRUNNER OFF CACHE BOOL "Build unit test runner")
+endif()
+
 project(Surge VERSION 1.3.1 LANGUAGES C CXX ASM)
 
 # Banner {{{

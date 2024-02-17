@@ -30,6 +30,10 @@ else()
   set(SURGE_BUILD_CLAP TRUE)
 endif()
 
+if(SURGE_SKIP_CLAP)
+  set(SURGE_BUILD_CLAP FALSE)
+endif()
+
 if(SURGE_BUILD_CLAP)
   add_subdirectory(../libs/clap-juce-extensions clap-extensions EXCLUDE_FROM_ALL)
 endif()

@@ -226,7 +226,9 @@ target_include_directories(${PROJECT_NAME}
   ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-add_subdirectory(cli)
+if(NOT SURGE_SKIP_CLI)
+  add_subdirectory(cli)
+endif()
 
 if(APPLE)
   add_dependencies(${PROJECT_NAME}_Standalone ${PROJECT_NAME}-cli)
