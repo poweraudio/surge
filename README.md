@@ -1,3 +1,24 @@
+**PowerAudio fork of Surge XT**
+
+This fork of Surge XT has the following changes:
+
+* The plugin is built with [a fork of JUCE] that includes fixes for IBM Power.
+* Removed architecture restrictions in the code; SIMDe is used for non-x86
+  architectures (and was already being used for ARM).
+* Added an option to use the system version of Lua instead of LuaJIT, enabling
+  Lua support for architectures not supported by LuaJIT.
+* In the [`lv2-only`] branch, added CMake option `LV2_ONLY` to build the plugin
+  only as LV2.
+
+The following changes have since been merged upstream:
+
+* Fixed compilation errors when Lua is disabled.
+
+[a fork of JUCE]: https://github.com/poweraudio/surge-juce
+[`lv2-only`]: https://github.com/poweraudio/surge/tree/lv2-only
+
+---
+
 # Surge XT
 
 **If you are a musician looking to use Surge XT, please download the appropriate binary
