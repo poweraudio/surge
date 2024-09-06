@@ -23,6 +23,8 @@
 #ifndef SURGE_SRC_SURGE_XT_GUI_SURGEGUIEDITOR_H
 #define SURGE_SRC_SURGE_XT_GUI_SURGEGUIEDITOR_H
 
+#include <deque>
+
 #include "globals.h"
 
 #include "SurgeGUICallbackInterfaces.h"
@@ -53,6 +55,11 @@
 #include "UndoManager.h"
 
 class SurgeSynthEditor;
+
+namespace melatonin
+{
+class Inspector;
+}
 
 namespace Surge
 {
@@ -125,7 +132,7 @@ class SurgeGUIEditor : public Surge::GUI::IComponentTagValue::Listener,
     std::unique_ptr<Surge::Widgets::MainFrame> frame;
 
     std::atomic<int> errorItemCount{0};
-    std::vector<std::tuple<std::string, std::string, SurgeStorage::ErrorType>> errorItems;
+    std::deque<std::tuple<std::string, std::string, SurgeStorage::ErrorType>> errorItems;
     std::mutex errorItemsMutex;
     void onSurgeError(const std::string &msg, const std::string &title,
                       const SurgeStorage::ErrorType &type) override;
@@ -176,6 +183,7 @@ class SurgeGUIEditor : public Surge::GUI::IComponentTagValue::Listener,
 
     bool debugFocus{false};
     void globalFocusChanged(juce::Component *fc) override;
+    std::unique_ptr<melatonin::Inspector> melatoninInspector;
 
   protected:
     virtual void setParameter(long index, float value);
@@ -266,6 +274,8 @@ class SurgeGUIEditor : public Surge::GUI::IComponentTagValue::Listener,
     int lastOverlayRefresh = 0;
     void adjustSize(float &width, float &height) const;
 
+    void update_deform_type(Parameter *p, int type);
+
     struct patchdata
     {
         std::string name;
@@ -276,7 +286,6 @@ class SurgeGUIEditor : public Surge::GUI::IComponentTagValue::Listener,
 
     void setBitmapZoomFactor(float zf);
     void showTooLargeZoomError(double width, double height, float zf) const;
-    void showMinimumZoomError() const;
 
     /*
     ** Zoom Implementation
@@ -388,7 +397,7 @@ class SurgeGUIEditor : public Surge::GUI::IComponentTagValue::Listener,
         PATCH_BROWSER,
         MODULATION_EDITOR,
         FORMULA_EDITOR,
-        WT_SCRIPTING_EDITOR, // This code is here but incomplete, and off in XT 1.0
+        WTSCRIPT_EDITOR, // This code is here but incomplete, and off in XT 1.0
         TUNING_EDITOR,
         WAVESHAPER_ANALYZER,
         FILTER_ANALYZER,
@@ -568,7 +577,7 @@ class SurgeGUIEditor : public Surge::GUI::IComponentTagValue::Listener,
   private:
     std::function<void(SurgeGUIEditor *, bool resizeWindow)> zoom_callback;
     bool zoomInvalid = false;
-    int minimumZoom = 100;
+    static constexpr int minimumZoom = 25;
 
     int selectedFX[n_fx_slots];
     std::string fxPresetName[n_fx_slots];
@@ -785,6 +794,7 @@ class SurgeGUIEditor : public Surge::GUI::IComponentTagValue::Listener,
     float blinktimer = 0;
     bool blinkstate = false;
     int firstIdleCountdown = 0;
+    int firstErrorIdleCountdown{30};
     int sendStructureChangeIn = -1;
 
     juce::PopupMenu makeSmoothMenu(const juce::Point<int> &where,
@@ -805,10 +815,7 @@ class SurgeGUIEditor : public Surge::GUI::IComponentTagValue::Listener,
     juce::PopupMenu makeDevMenu(const juce::Point<int> &rect);
     juce::PopupMenu makeLfoMenu(const juce::Point<int> &rect);
     juce::PopupMenu makeMonoModeOptionsMenu(const juce::Point<int> &rect, bool updateDefaults);
-
-#if SURGE_HAS_OSC
     juce::PopupMenu makeOSCMenu(const juce::Point<int> &where);
-#endif
 
     void makeScopeEntry(juce::PopupMenu &menu);
 
@@ -898,13 +905,14 @@ class SurgeGUIEditor : public Surge::GUI::IComponentTagValue::Listener,
     void removeUnusedTrackedComponents();
 
   public:
+    void promptForUserValueEntry(Parameter *p, juce::Component *c, int modsource, int modScene,
+                                 int modindex);
+    bool promptForUserValueEntry(Surge::Widgets::ModulatableControlInterface *mci);
+    bool promptForUserValueEntry(uint32_t tag, juce::Component *c);
     void promptForUserValueEntry(Parameter *p, juce::Component *c)
     {
         promptForUserValueEntry(p, c, -1, -1, -1);
     }
-    void promptForUserValueEntry(Parameter *p, juce::Component *c, int modsource, int modScene,
-                                 int modindex);
-    bool promptForUserValueEntry(Surge::Widgets::ModulatableControlInterface *mci);
 
     /*
     ** Skin support

@@ -97,7 +97,7 @@ float SurgeVoice::channelKeyEquvialent(float key, int channel, bool isMpeEnabled
                                        SurgeStorage *storage, bool remapKeyForTuning)
 {
     float res = key;
-    if (storage->mapChannelToOctave && !storage->oddsound_mts_active_as_client && !isMpeEnabled)
+    if (storage->mapChannelToOctave && !isMpeEnabled)
     {
         if (remapKeyForTuning)
         {
@@ -121,7 +121,8 @@ float SurgeVoice::channelKeyEquvialent(float key, int channel, bool isMpeEnabled
         else
         {
             // keys are in tuning space so move cents worth of keys
-            if (storage->isStandardTuning)
+            // We don't know the period in MTS-ESP so default to octave for now
+            if (storage->isStandardTuning || storage->oddsound_mts_active_as_client)
                 res += 12 * shift;
             else
             {
@@ -184,13 +185,14 @@ SurgeVoice::SurgeVoice(SurgeStorage *storage, SurgeSceneStorage *oscene, pdata *
     // We want this on the keystate so it survives the voice for mono mode
     keyState->voiceOrder = voiceOrder;
 
+    state.voiceOrderAtCreate = voiceOrder;
+
     age = 0;
     age_release = 0;
 
     state.key = key;
     state.keyRetuningForKey = -1000;
     state.channel = channel;
-    state.voiceOrderAtCreate = voiceOrder;
 
     state.velocity = velocity;
     state.fvel = velocity / 127.f;
@@ -216,7 +218,8 @@ SurgeVoice::SurgeVoice(SurgeStorage *storage, SurgeSceneStorage *oscene, pdata *
         storage, Surge::Storage::UseCh2Ch3ToPlayScenesIndividually, true, false);
     const bool isChSplitMode = storage->getPatch().scenemode.val.i == sm_chsplit;
 
-    state.mtsUseChannelWhenRetuning = (mpeEnabled || isChSplitMode || isCh23Mode);
+    state.mtsUseChannelWhenRetuning =
+        (mpeEnabled || isChSplitMode || isCh23Mode || storage->mapChannelToOctave);
 #endif
 
     resetPortamentoFrom(storage->last_key[scene_id], channel);
@@ -278,7 +281,8 @@ SurgeVoice::SurgeVoice(SurgeStorage *storage, SurgeSceneStorage *oscene, pdata *
 
         if (scene->lfo[i].shape.val.i == lt_formula)
         {
-            Surge::Formula::setupEvaluatorStateFrom(lfo[i].formulastate, storage->getPatch());
+            Surge::Formula::setupEvaluatorStateFrom(lfo[i].formulastate, storage->getPatch(),
+                                                    scene_id);
             Surge::Formula::setupEvaluatorStateFrom(lfo[i].formulastate, this);
         }
 
@@ -732,7 +736,8 @@ template <bool first> void SurgeVoice::calc_ctrldata(QuadFilterChainState *Q, in
     {
         if (scene->lfo[i].shape.val.i == lt_formula)
         {
-            Surge::Formula::setupEvaluatorStateFrom(lfo[i].formulastate, storage->getPatch());
+            Surge::Formula::setupEvaluatorStateFrom(lfo[i].formulastate, storage->getPatch(),
+                                                    state.scene_id);
             Surge::Formula::setupEvaluatorStateFrom(lfo[i].formulastate, this);
         }
 
@@ -929,6 +934,14 @@ inline void all_ring_modes_block(float *__restrict src1_l, float *__restrict src
             cxor43_2_block(src1_l, src2_l, dst_l, nquads);
             cxor43_2_block(src1_r, src2_r, dst_r, nquads);
             break;
+        case CombinatorMode::cxm_cxor43_3_legacy:
+            cxor43_3_legacy_block(src1_l, src2_l, dst_l, nquads);
+            cxor43_3_legacy_block(src1_r, src2_r, dst_r, nquads);
+            break;
+        case CombinatorMode::cxm_cxor43_4_legacy:
+            cxor43_4_legacy_block(src1_l, src2_l, dst_l, nquads);
+            cxor43_4_legacy_block(src1_r, src2_r, dst_r, nquads);
+            break;
         case CombinatorMode::cxm_cxor43_3:
             cxor43_3_block(src1_l, src2_l, dst_l, nquads);
             cxor43_3_block(src1_r, src2_r, dst_r, nquads);
@@ -975,6 +988,12 @@ inline void all_ring_modes_block(float *__restrict src1_l, float *__restrict src
             break;
         case CombinatorMode::cxm_cxor43_2:
             cxor43_2_block(src1_l, src2_l, dst_l, nquads);
+            break;
+        case CombinatorMode::cxm_cxor43_3_legacy:
+            cxor43_3_legacy_block(src1_l, src2_l, dst_l, nquads);
+            break;
+        case CombinatorMode::cxm_cxor43_4_legacy:
+            cxor43_4_legacy_block(src1_l, src2_l, dst_l, nquads);
             break;
         case CombinatorMode::cxm_cxor43_3:
             cxor43_3_block(src1_l, src2_l, dst_l, nquads);

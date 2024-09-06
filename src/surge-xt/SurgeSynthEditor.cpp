@@ -211,6 +211,7 @@ SurgeSynthEditor::SurgeSynthEditor(SurgeSynthProcessor &p)
         float newT = std::atof(tempoTypein->getText().toRawUTF8());
 
         processor.standaloneTempo = newT;
+        processor.surge->storage.unstreamedTempo = newT;
         tempoTypein->giveAwayKeyboardFocus();
     };
 
@@ -328,7 +329,23 @@ void SurgeSynthEditor::paint(juce::Graphics &g)
 #endif
 }
 
-void SurgeSynthEditor::idle() { sge->idle(); }
+void SurgeSynthEditor::idle()
+{
+    sge->idle();
+
+    if (processor.surge->refresh_vkb)
+    {
+        const int curTypeinBPM = std::atoi(tempoTypein->getText().toStdString().c_str());
+        const int curBPM = std::round(processor.surge->time_data.tempo);
+
+        if (curTypeinBPM != curBPM)
+        {
+            tempoTypein->setText(fmt::format("{}", curBPM));
+        }
+
+        processor.surge->refresh_vkb = false;
+    }
+}
 
 void SurgeSynthEditor::reapplySurgeComponentColours()
 {
@@ -584,7 +601,8 @@ void SurgeSynthEditor::endParameterEdit(Parameter *p)
     auto par = processor.paramsByID[processor.surge->idForParameter(p)];
     par->inEditGesture = false;
     par->endChangeGesture();
-    processor.paramChangeToListeners(p);
+    if (fireListenersOnEndEdit)
+        processor.paramChangeToListeners(p);
 }
 
 void SurgeSynthEditor::beginMacroEdit(long macroNum)
@@ -599,7 +617,8 @@ void SurgeSynthEditor::endMacroEdit(long macroNum)
     par->endChangeGesture();
     // echo change to OSC out
     float newval = par->getValue();
-    processor.paramChangeToListeners(nullptr, true, processor.SCT_MACRO, macroNum, newval, "");
+    processor.paramChangeToListeners(nullptr, true, processor.SCT_MACRO, (float)macroNum, newval,
+                                     .0, "");
 }
 
 #if LINUX
@@ -607,13 +626,70 @@ void SurgeSynthEditor::endMacroEdit(long macroNum)
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #endif
 
+juce::PopupMenu SurgeSynthEditor::modifyHostMenu(juce::PopupMenu menu)
+{
+    // make things look a bit nicer for our friends from Image-Line
+    if (juce::PluginHostType().isFruityLoops())
+    {
+        auto it = juce::PopupMenu::MenuItemIterator(menu);
+
+        while (it.next())
+        {
+            auto txt = it.getItem().text;
+
+            if (txt.startsWithChar('-'))
+            {
+                it.getItem().isSectionHeader = true;
+                it.getItem().text = txt.fromFirstOccurrenceOf("-", false, false);
+            }
+        }
+
+        return menu;
+    }
+
+    // we really don't need that parameter name repeated in Reaper...
+    if (juce::PluginHostType().isReaper())
+    {
+        auto newMenu = juce::PopupMenu();
+        auto it = juce::PopupMenu::MenuItemIterator(menu);
+
+        while (it.next())
+        {
+            auto txt = it.getItem().text;
+            bool include = true;
+
+            if (txt.startsWithChar('[') && txt.endsWithChar(']'))
+            {
+                include = it.next();
+            }
+
+            if (include)
+            {
+                newMenu.addItem(it.getItem());
+            }
+        }
+
+        return newMenu;
+    }
+
+    return menu;
+}
+
 juce::PopupMenu SurgeSynthEditor::hostMenuFor(Parameter *p)
 {
     auto par = processor.paramsByID[processor.surge->idForParameter(p)];
 
     if (auto *c = getHostContext())
+    {
         if (auto menuInfo = c->getContextMenuForParameterIndex(par))
-            return menuInfo->getEquivalentPopupMenu();
+        {
+            auto menu = menuInfo->getEquivalentPopupMenu();
+
+            menu = modifyHostMenu(menu);
+
+            return menu;
+        }
+    }
 
     return juce::PopupMenu();
 }
@@ -623,8 +699,16 @@ juce::PopupMenu SurgeSynthEditor::hostMenuForMacro(int macro)
     auto par = processor.macrosById[macro];
 
     if (auto *c = getHostContext())
+    {
         if (auto menuInfo = c->getContextMenuForParameterIndex(par))
-            return menuInfo->getEquivalentPopupMenu();
+        {
+            auto menu = menuInfo->getEquivalentPopupMenu();
+
+            modifyHostMenu(menu);
+
+            return menu;
+        }
+    }
 
     return juce::PopupMenu();
 }

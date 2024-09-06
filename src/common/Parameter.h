@@ -96,10 +96,12 @@ enum ctrltypes
     ct_freq_mod,
     ct_freq_hpf,
     ct_freq_shift,
+    ct_freq_fm2_offset,
     ct_freq_vocoder_low,
     ct_freq_vocoder_high,
     ct_bandwidth,
     ct_envtime,
+    ct_envtime_deformable,
     ct_envtime_deactivatable,
     ct_envtime_lfodecay,
     ct_envshape,
@@ -229,6 +231,14 @@ enum ControlGroup
     cg_LFO = 6,
     cg_FX = 7,
     endCG
+};
+
+enum SoftTakeoverStatus
+{
+    sts_waiting_for_first_look,
+    sts_waiting_below,
+    sts_waiting_above,
+    sts_locked
 };
 
 const char ControlGroupDisplay[endCG][32] = {"Global",  "",          "Oscillators", "Mixer",
@@ -512,21 +522,14 @@ class Parameter
     int ctrlstyle = cs_off;
     int midictrl{};
     int midichan{};
+    SoftTakeoverStatus miditakeover_status{sts_waiting_for_first_look};
+
     int param_id_in_scene{};
     bool affect_other_parameters{};
     float moverate{};
     bool per_voice_processing{};
     // remember these need to be stashed specially in undo
-    bool temposync{}, absolute{}, deactivated{};
-
-#define DEBUG_WRITABLE_EXTEND_RANGE 0
-#if DEBUG_WRITABLE_EXTEND_RANGE
-    bool extend_range_internal{};
-    const bool &extend_range = extend_range_internal;
-#else
-    bool extend_range{};
-#endif
-
+    bool temposync{}, absolute{}, deactivated{}, extend_range{};
     bool porta_constrate{}, porta_gliss{}, porta_retrigger{};
     int porta_curve{};
     int deform_type{};

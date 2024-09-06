@@ -110,7 +110,9 @@ enum NumberfieldControlModes
     NOTENAME,
     MIDICHANNEL_FROM_127,
     MSEG_SNAP_H,
-    MSEG_SNAP_V
+    MSEG_SNAP_V,
+    WTSE_RESOLUTION,
+    WTSE_FRAMES
 };
 }
 
@@ -283,6 +285,7 @@ struct Connector
         OSCILLOSCOPE_WINDOW,
         WAVESHAPER_ANALYSIS_WINDOW,
         FORMULA_EDITOR_WINDOW,
+        WTSCRIPT_EDITOR_WINDOW,
         TUNING_EDITOR_WINDOW,
         MOD_LIST_WINDOW,
 
@@ -451,7 +454,7 @@ extern Surge::Skin::Connector vu_meter;
 
 extern Surge::Skin::Connector patch_browser;
 
-extern Surge::Skin::Connector mseg_editor, formula_editor, tuning_editor;
+extern Surge::Skin::Connector mseg_editor, formula_editor, wtscript_editor, tuning_editor;
 
 extern Surge::Skin::Connector mod_list;
 

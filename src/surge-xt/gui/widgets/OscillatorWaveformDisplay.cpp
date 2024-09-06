@@ -22,6 +22,8 @@
 
 #include "OscillatorWaveformDisplay.h"
 #include "SurgeStorage.h"
+#include "SurgeSynthProcessor.h"
+#include "SurgeSynthEditor.h"
 #include "Oscillator.h"
 #include "OscillatorBase.h"
 #include "RuntimeFont.h"
@@ -94,6 +96,11 @@ OscillatorWaveformDisplay::OscillatorWaveformDisplay()
             sge->enqueueAccessibleAnnouncement(announce);
 
             oscdata->wt.queue_id = id;
+            auto new_name = storage->getCurrentWavetableName(oscdata);
+
+            SurgeSynthProcessor *ssp = &sge->juceEditor->processor;
+            ssp->paramChangeToListeners(nullptr, true, ssp->SCT_WAVETABLE, (float)scene,
+                                        (float)oscInScene, (float)id, new_name);
         }
     };
     ol->onReturnKey = [ov = ol.get()](OscillatorWaveformDisplay *d) {
@@ -312,7 +319,7 @@ void OscillatorWaveformDisplay::paint(juce::Graphics &g)
         // once the wavetable change is done other than through repaint
         if (oscdata->wt.current_id != lastWavetableId)
         {
-            auto nd = std::string("Wavetable: ") + getCurrentWavetableName();
+            auto nd = std::string("Wavetable: ") + storage->getCurrentWavetableName(oscdata);
 
             menuOverlays[0]->setTitle(nd);
             menuOverlays[0]->setDescription(nd);
@@ -381,7 +388,7 @@ void OscillatorWaveformDisplay::paint(juce::Graphics &g)
         g.setColour(isWtNameHovered ? fgframeHov : fgframe);
         g.drawRect(waveTableName);
 
-        auto wtn = getCurrentWavetableName();
+        auto wtn = storage->getCurrentWavetableName(oscdata);
 
         g.setColour(isWtNameHovered ? fgtextHov : fgtext);
         g.setFont(skin->fontManager->getLatoAtSize(9));
@@ -412,35 +419,6 @@ void OscillatorWaveformDisplay::paint(juce::Graphics &g)
                        juce::Justification::topLeft);
         }
     }
-}
-
-std::string OscillatorWaveformDisplay::getCurrentWavetableName()
-{
-    storage->waveTableDataMutex.lock();
-
-    std::string wttxt;
-    int wtid = oscdata->wt.current_id;
-
-    if (!oscdata->wavetable_display_name.empty())
-    {
-        wttxt = oscdata->wavetable_display_name;
-    }
-    else if ((wtid >= 0) && (wtid < storage->wt_list.size()))
-    {
-        wttxt = storage->wt_list.at(wtid).name;
-    }
-    else if (oscdata->wt.flags & wtf_is_sample)
-    {
-        wttxt = "(Patch Sample)";
-    }
-    else
-    {
-        wttxt = "(Patch Wavetable)";
-    }
-
-    storage->waveTableDataMutex.unlock();
-
-    return wttxt;
 }
 
 void OscillatorWaveformDisplay::resized()
@@ -609,18 +587,19 @@ void OscillatorWaveformDisplay::populateMenu(juce::PopupMenu &contextMenu, int s
 
     contextMenu.addSeparator();
 
-    /*
-    We've decided to postpone this feature until after XT 1.0
-
+// Change this to 0 to disable WTSE component, to disable for release: change value, test, and push
+#define INCLUDE_WT_SCRIPTING_EDITOR 1
+#if INCLUDE_WT_SCRIPTING_EDITOR
     contextMenu.addSeparator();
 
     auto owts = [this]() {
         if (sge)
-            sge->showOverlay(SurgeGUIEditor::WT_SCRIPTING_EDITOR);
+            sge->showOverlay(SurgeGUIEditor::WTSCRIPT_EDITOR);
     };
 
     contextMenu.addItem(Surge::GUI::toOSCase("Wavetable Script Editor..."), owts);
-    */
+    contextMenu.addSeparator();
+#endif
 
     // add this option only if we have any wavetables in the list
     if (idx > 0)
@@ -1015,6 +994,11 @@ void OscillatorWaveformDisplay::loadWavetable(int id)
             sge->enqueueAccessibleAnnouncement(announce);
         }
         oscdata->wt.queue_id = id;
+        auto new_name = storage->getCurrentWavetableName(oscdata);
+
+        SurgeSynthProcessor *ssp = &sge->juceEditor->processor;
+        ssp->paramChangeToListeners(nullptr, true, ssp->SCT_WAVETABLE, (float)scene,
+                                    (float)oscInScene, (float)id, new_name);
     }
 }
 
@@ -1109,6 +1093,10 @@ void OscillatorWaveformDisplay::mouseDown(const juce::MouseEvent &event)
                     }
 
                     oscdata->wt.queue_id = id;
+                    auto new_name = storage->getCurrentWavetableName(oscdata);
+                    SurgeSynthProcessor *ssp = &sge->juceEditor->processor;
+                    ssp->paramChangeToListeners(nullptr, true, ssp->SCT_WAVETABLE, (float)scene,
+                                                (float)oscInScene, (float)id, new_name);
                 }
             }
             else
@@ -1135,6 +1123,10 @@ void OscillatorWaveformDisplay::mouseDown(const juce::MouseEvent &event)
                     }
 
                     oscdata->wt.queue_id = id;
+                    auto new_name = storage->getCurrentWavetableName(oscdata);
+                    SurgeSynthProcessor *ssp = &sge->juceEditor->processor;
+                    ssp->paramChangeToListeners(nullptr, true, ssp->SCT_WAVETABLE, (float)scene,
+                                                (float)oscInScene, (float)id, new_name);
                 }
             }
             else

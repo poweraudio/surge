@@ -459,8 +459,23 @@ class alignas(16) SurgeSynthesizer
     void deletePatchLoadedListener(std::string key) { patchLoadedListeners.erase(key); }
 
     //==============================================================================
+    // Parameter changes coming from within the synth (e.g. from MIDI-learned input)
+    // are communicated to listeners here
+    std::unordered_map<std::string, std::function<void(const std::string oscname, const float fval,
+                                                       std::string valstr)>>
+        audioThreadParamListeners;
+
+    void addAudioParamListener(std::string key,
+                               std::function<void(const std::string oscname, const float fval,
+                                                  std::string valstr)> const &l)
+    {
+        audioThreadParamListeners.insert({key, l});
+    }
+    void deleteAudioParamListener(std::string key) { audioThreadParamListeners.erase(key); }
+
+    //==============================================================================
     // synth -> editor variables
-    bool refresh_editor, patch_loaded;
+    bool refresh_editor, refresh_vkb, patch_loaded;
     int learn_param_from_cc, learn_macro_from_cc, learn_param_from_note;
     int refresh_ctrl_queue[8];
     int refresh_parameter_queue[8];
@@ -475,6 +490,7 @@ class alignas(16) SurgeSynthesizer
     std::atomic<int> polydisplay;
     std::atomic<int> hasUpdatedMidiCC;
     std::atomic<int> modwheelCC, pitchbendMIDIVal, sustainpedalCC;
+    std::atomic<bool> midiSoftTakeover;
 
     float vu_peak[8];
     std::atomic<float> cpu_level{0.f};
@@ -557,6 +573,8 @@ class alignas(16) SurgeSynthesizer
     bool activateExtraOutputs = true;
 
     void changeModulatorSmoothing(Modulator::SmoothingMode m);
+
+    void queueForRefresh(int param_index);
 
     // these have to be thread-safe, so keep them private
   private:

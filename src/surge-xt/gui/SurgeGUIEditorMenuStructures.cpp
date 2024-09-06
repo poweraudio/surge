@@ -20,6 +20,7 @@
  * https://github.com/surge-synthesizer/surge
  */
 
+#include "melatonin_inspector/melatonin_inspector.h"
 #include "SurgeGUIEditor.h"
 #include "SurgeGUIEditorTags.h"
 #include "SurgeGUIUtils.h"
@@ -398,19 +399,27 @@ juce::PopupMenu SurgeGUIEditor::makeTuningMenu(const juce::Point<int> &where, bo
 
         tuningSubMenu.addSeparator();
 
-        tuningSubMenu.addItem(Surge::GUI::toOSCase("Set to Standard Tuning"),
-                              !this->synth->storage.isStandardTuning, false, [this]() {
-                                  this->synth->storage.retuneTo12TETScaleC261Mapping();
-                                  this->synth->storage.resetTuningToggle();
-                                  this->synth->refresh_editor = true;
-                                  tuningChanged();
-                              });
+        tuningSubMenu.addItem(
+            Surge::GUI::toOSCase("Set to Standard Tuning"), !this->synth->storage.isStandardTuning,
+            false, [this]() {
+                this->synth->storage.retuneTo12TETScaleC261Mapping();
+                this->synth->storage.resetTuningToggle();
+                this->synth->refresh_editor = true;
+                tuningChanged();
+                juceEditor->processor.paramChangeToListeners(
+                    nullptr, true, juceEditor->processor.SCT_TUNING_SCL, .0, .0, .0, "(standard)");
+                juceEditor->processor.paramChangeToListeners(
+                    nullptr, true, juceEditor->processor.SCT_TUNING_KBM, .0, .0, .0, "(standard)");
+            });
 
         tuningSubMenu.addItem(Surge::GUI::toOSCase("Set to Standard Mapping (Concert C)"),
                               (!this->synth->storage.isStandardMapping), false, [this]() {
                                   this->synth->storage.remapToConcertCKeyboard();
                                   this->synth->refresh_editor = true;
                                   tuningChanged();
+                                  juceEditor->processor.paramChangeToListeners(
+                                      nullptr, true, juceEditor->processor.SCT_TUNING_KBM, .0, .0,
+                                      .0, "(standard)");
                               });
 
         tuningSubMenu.addItem(Surge::GUI::toOSCase("Set to Standard Scale (12-TET)"),
@@ -418,6 +427,9 @@ juce::PopupMenu SurgeGUIEditor::makeTuningMenu(const juce::Point<int> &where, bo
                                   this->synth->storage.retuneTo12TETScale();
                                   this->synth->refresh_editor = true;
                                   tuningChanged();
+                                  juceEditor->processor.paramChangeToListeners(
+                                      nullptr, true, juceEditor->processor.SCT_TUNING_SCL, .0, .0,
+                                      .0, "(standard)");
                               });
 
         tuningSubMenu.addSeparator();
@@ -453,6 +465,10 @@ juce::PopupMenu SurgeGUIEditor::makeTuningMenu(const juce::Point<int> &where, bo
                     synth->storage.reportError(e.what(), "Loading Error");
                 }
                 tuningChanged();
+                auto tuningLabel = path_to_string(fs::path(synth->storage.currentScale.name));
+                tuningLabel = tuningLabel.substr(0, tuningLabel.find_last_of("."));
+                juceEditor->processor.paramChangeToListeners(
+                    nullptr, true, juceEditor->processor.SCT_TUNING_SCL, .0, .0, .0, tuningLabel);
             };
 
             auto scl_path = this->synth->storage.datapath / "tuning_library" / "SCL";
@@ -474,6 +490,7 @@ juce::PopupMenu SurgeGUIEditor::makeTuningMenu(const juce::Point<int> &where, bo
                     auto dir =
                         string_to_path(res.getParentDirectory().getFullPathName().toStdString());
                     cb(rString);
+
                     if (dir != scl_path)
                     {
                         Surge::Storage::updateUserDefaultPath(&(this->synth->storage),
@@ -514,6 +531,10 @@ juce::PopupMenu SurgeGUIEditor::makeTuningMenu(const juce::Point<int> &where, bo
                     synth->storage.reportError(e.what(), "Loading Error");
                 }
                 tuningChanged();
+                auto mappingLabel = synth->storage.currentMapping.name;
+                mappingLabel = mappingLabel.substr(0, mappingLabel.find_last_of("."));
+                juceEditor->processor.paramChangeToListeners(
+                    nullptr, true, juceEditor->processor.SCT_TUNING_KBM, .0, .0, .0, mappingLabel);
             };
 
             auto kbm_path = this->synth->storage.datapath / "tuning_library" / "KBM Concert Pitch";
@@ -619,6 +640,28 @@ juce::PopupMenu SurgeGUIEditor::makeTuningMenu(const juce::Point<int> &where, bo
 
     if (tsMode)
     {
+        tuningSubMenu.addItem(
+            Surge::GUI::toOSCase("Query Tuning at Note On Only"), true,
+            (this->synth->storage.oddsoundRetuneMode == SurgeStorage::RETUNE_NOTE_ON_ONLY),
+            [this]() {
+                if (this->synth->storage.oddsoundRetuneMode == SurgeStorage::RETUNE_CONSTANT)
+                {
+                    this->synth->storage.oddsoundRetuneMode = SurgeStorage::RETUNE_NOTE_ON_ONLY;
+                }
+                else
+                {
+                    this->synth->storage.oddsoundRetuneMode = SurgeStorage::RETUNE_CONSTANT;
+                }
+            });
+
+        tuningSubMenu.addItem(Surge::GUI::toOSCase("Use MIDI Channel for Octave Shift"),
+                              !synth->mpeEnabled, (synth->storage.mapChannelToOctave), [this]() {
+                                  this->synth->storage.mapChannelToOctave =
+                                      !(this->synth->storage.mapChannelToOctave);
+                              });
+
+        tuningSubMenu.addSeparator();
+
         std::string mtxt = "Act as" + Surge::GUI::toOSCase(" MTS-ESP Source");
 
         tuningSubMenu.addItem(mtxt, canMaster || getStorage()->oddsound_mts_active_as_main,
@@ -676,22 +719,6 @@ juce::PopupMenu SurgeGUIEditor::makeTuningMenu(const juce::Point<int> &where, bo
             this->synth->storage.getPatch().dawExtraState.disconnectFromOddSoundMTS = true;
             MTS_DeregisterClient(q);
         });
-
-        tuningSubMenu.addSeparator();
-
-        tuningSubMenu.addItem(
-            Surge::GUI::toOSCase("Query Tuning at Note On Only"), true,
-            (this->synth->storage.oddsoundRetuneMode == SurgeStorage::RETUNE_NOTE_ON_ONLY),
-            [this]() {
-                if (this->synth->storage.oddsoundRetuneMode == SurgeStorage::RETUNE_CONSTANT)
-                {
-                    this->synth->storage.oddsoundRetuneMode = SurgeStorage::RETUNE_NOTE_ON_ONLY;
-                }
-                else
-                {
-                    this->synth->storage.oddsoundRetuneMode = SurgeStorage::RETUNE_CONSTANT;
-                }
-            });
     }
 
 #endif
@@ -1032,6 +1059,30 @@ juce::PopupMenu SurgeGUIEditor::makePatchDefaultsMenu(const juce::Point<int> &wh
                          });
 
     patchDefMenu.addSeparator();
+
+    if (Surge::GUI::getIsStandalone())
+    {
+        auto tempoOnLoadMenu = juce::PopupMenu();
+
+        bool overrideTempoOnLoad = Surge::Storage::getUserDefaultValue(
+            &(synth->storage), Surge::Storage::OverrideTempoOnPatchLoad, true);
+
+        tempoOnLoadMenu.addItem(Surge::GUI::toOSCase("Keep Current Tempo"), true,
+                                !overrideTempoOnLoad, [this, overrideTempoOnLoad]() {
+                                    Surge::Storage::updateUserDefaultValue(
+                                        &(this->synth->storage),
+                                        Surge::Storage::OverrideTempoOnPatchLoad, false);
+                                });
+
+        tempoOnLoadMenu.addItem(Surge::GUI::toOSCase("Override With Embedded Tempo if Available"),
+                                true, overrideTempoOnLoad, [this, overrideTempoOnLoad]() {
+                                    Surge::Storage::updateUserDefaultValue(
+                                        &(this->synth->storage),
+                                        Surge::Storage::OverrideTempoOnPatchLoad, true);
+                                });
+
+        patchDefMenu.addSubMenu(Surge::GUI::toOSCase("Tempo on Patch Load"), tempoOnLoadMenu);
+    }
 
     auto tuningOnLoadMenu = juce::PopupMenu();
 
@@ -1645,6 +1696,19 @@ juce::PopupMenu SurgeGUIEditor::makeMidiMenu(const juce::Point<int> &where)
     midiSubMenu.addSubMenu(Surge::GUI::toOSCase("Default Channel For Menu-Based MIDI Learn"),
                            chanSubMenu);
 
+    bool softTakeover = Surge::Storage::getUserDefaultValue(&(this->synth->storage),
+                                                            Surge::Storage::MIDISoftTakeover, 0);
+
+    midiSubMenu.addItem(Surge::GUI::toOSCase("Soft Takeover MIDI Learned Parameters"), true,
+                        softTakeover, [this, softTakeover]() {
+                            Surge::Storage::updateUserDefaultValue(&(this->synth->storage),
+                                                                   Surge::Storage::MIDISoftTakeover,
+                                                                   !softTakeover);
+                            this->synth->midiSoftTakeover = !softTakeover;
+                        });
+
+    midiSubMenu.addSeparator();
+
     midiSubMenu.addItem(Surge::GUI::toOSCase("Save MIDI Mapping As..."), [this, where]() {
         this->scannedForMidiPresets = false; // force a rescan
 
@@ -1710,8 +1774,6 @@ juce::PopupMenu SurgeGUIEditor::makeMidiMenu(const juce::Point<int> &where)
     return midiSubMenu;
 }
 
-#if SURGE_HAS_OSC
-
 juce::PopupMenu SurgeGUIEditor::makeOSCMenu(const juce::Point<int> &where)
 {
     auto storage = &(synth->storage);
@@ -1740,8 +1802,6 @@ juce::PopupMenu SurgeGUIEditor::makeOSCMenu(const juce::Point<int> &where)
     return oscSubMenu;
 }
 
-#endif
-
 juce::PopupMenu SurgeGUIEditor::makeDevMenu(const juce::Point<int> &where)
 {
     auto devSubMenu = juce::PopupMenu();
@@ -1760,6 +1820,26 @@ juce::PopupMenu SurgeGUIEditor::makeDevMenu(const juce::Point<int> &where)
 
     devSubMenu.addItem(Surge::GUI::toOSCase("Dump Undo/Redo Stack to stdout"), true, false,
                        [this]() { undoManager()->dumpStack(); });
+
+    if (melatoninInspector)
+    {
+        devSubMenu.addItem("Close Melatonin Inspector", [this]() {
+            if (melatoninInspector)
+            {
+                melatoninInspector->setVisible(false);
+                melatoninInspector.reset();
+            }
+        });
+    }
+    else
+    {
+        devSubMenu.addItem("Launch Melatonin Inspector", [this] {
+            melatoninInspector = std::make_unique<melatonin::Inspector>(*frame);
+            melatoninInspector->onClose = [this]() { melatoninInspector.reset(); };
+
+            melatoninInspector->setVisible(true);
+        });
+    }
 
 #ifdef INSTRUMENT_UI
     devSubMenu.addItem(Surge::GUI::toOSCase("Show UI Instrumentation..."),
@@ -1839,10 +1919,8 @@ void SurgeGUIEditor::showSettingsMenu(const juce::Point<int> &where,
     auto midiSubMenu = makeMidiMenu(where);
     settingsMenu.addSubMenu(Surge::GUI::toOSCase("MIDI Settings"), midiSubMenu);
 
-#if SURGE_HAS_OSC
     auto oscSubMenu = makeOSCMenu(where);
     settingsMenu.addSubMenu(Surge::GUI::toOSCase("OSC Settings"), oscSubMenu);
-#endif
 
     auto tuningSubMenu = makeTuningMenu(where, false);
     settingsMenu.addSubMenu("Tuning", tuningSubMenu);
