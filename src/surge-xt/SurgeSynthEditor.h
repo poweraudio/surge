@@ -91,23 +91,29 @@ class SurgeSynthEditor : public juce::AudioProcessorEditor,
         void timerCallback() override;
         SurgeSynthEditor *ed;
     };
-    void idle();
-    std::unique_ptr<IdleTimer> idleTimer;
 
+    void idle();
+
+    std::unique_ptr<IdleTimer> idleTimer;
     bool drawExtendedControls{false};
     int midiKeyboardOctave{5};
     float midiKeyboardVelocity{127.f / 127.f}; // see issue #6409
-    void setPitchModSustainGUI(int pitch, int mod, int sus);
+
+    bool fireListenersOnEndEdit{true};
+
     std::unique_ptr<juce::Component> pitchwheel, modwheel, suspedal;
     std::unique_ptr<juce::MidiKeyboardComponent> keyboard;
     std::unique_ptr<juce::Label> tempoLabel, sustainLabel;
     std::unique_ptr<juce::TextEditor> tempoTypein;
-
     std::unique_ptr<juce::Component> topLevelContainer;
+
+    void setPitchModSustainGUI(int pitch, int mod, int sus);
 
     /* Drag and drop */
     bool isInterestedInFileDrag(const juce::StringArray &files) override;
     void filesDropped(const juce::StringArray &files, int, int) override;
+
+    juce::PopupMenu modifyHostMenu(juce::PopupMenu menu);
 
     juce::PopupMenu hostMenuFor(Parameter *p);
     juce::PopupMenu hostMenuForMacro(int macro);
@@ -156,7 +162,7 @@ struct SurgeSynthStartupErrorEditor : juce::AudioProcessorEditor
 
         g.setFont(40);
         auto lb = getLocalBounds().withHeight(50).translated(0, 100);
-        g.drawText("Fatal Surge Startup Error", lb, juce::Justification::centred);
+        g.drawText("Fatal Surge XT Startup Error", lb, juce::Justification::centred);
 
         g.setColour(juce::Colours::white);
         g.setFont(20);
@@ -165,8 +171,9 @@ struct SurgeSynthStartupErrorEditor : juce::AudioProcessorEditor
         lb = lb.translated(0, 125);
         g.drawText(Surge::Build::FullVersionStr, lb, juce::Justification::centred);
         lb = lb.translated(0, 25);
-        g.drawText("Report on Surge discord or github issue with a screenshot of this screen", lb,
-                   juce::Justification::centred);
+        g.drawText(
+            "Report issue on Surge Synth Team Discord or GitHub with a screenshot of this screen",
+            lb, juce::Justification::centred);
     }
 };
 

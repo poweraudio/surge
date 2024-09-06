@@ -122,6 +122,9 @@ SurgeSynthesizer::SurgeSynthesizer(PluginLayer *parent, const std::string &suppl
     storage.pitchSmoothingMode = (Modulator::SmoothingMode)(int)Surge::Storage::getUserDefaultValue(
         &storage, Surge::Storage::PitchSmoothingMode, (int)(Modulator::SmoothingMode::DIRECT));
 
+    midiSoftTakeover =
+        (bool)Surge::Storage::getUserDefaultValue(&storage, Surge::Storage::MIDISoftTakeover, 0);
+
     patch.polylimit.val.i = DEFAULT_POLYLIMIT;
 
     for (int sc = 0; sc < n_scenes; sc++)
@@ -752,7 +755,8 @@ void SurgeSynthesizer::playVoice(int scene, char channel, char key, char velocit
                     storage.getPatch().scene[scene].modsources[ms_slfo1 + l]);
                 if (lms)
                 {
-                    Surge::Formula::setupEvaluatorStateFrom(lms->formulastate, storage.getPatch());
+                    Surge::Formula::setupEvaluatorStateFrom(lms->formulastate, storage.getPatch(),
+                                                            scene);
                 }
             }
             storage.getPatch().scene[scene].modsources[ms_slfo1 + l]->attack();
@@ -1496,7 +1500,7 @@ void SurgeSynthesizer::releaseNotePostHoldCheck(int scene, char channel, char ke
                     else
                     { // MPE branch
                         int highest = -1, lowest = 128, latest = -1;
-                        int hichan, lowchan, latechan;
+                        int hichan{-1}, lowchan{-1}, latechan{-1};
                         int64_t lt = 0;
 
                         for (k = hikey; k >= lowkey && !do_switch; k--)
@@ -1717,7 +1721,7 @@ void SurgeSynthesizer::releaseNotePostHoldCheck(int scene, char channel, char ke
                     else
                     {
                         int highest = -1, lowest = 128, latest = -1;
-                        int hichan, lowchan, latechan;
+                        int hichan{-1}, lowchan{-1}, latechan{-1};
                         int64_t lt = 0;
 
                         for (k = hikey; k >= lowkey && !do_switch; k--)
@@ -2302,6 +2306,7 @@ void SurgeSynthesizer::channelController(char channel, int cc, int value)
         {
             storage.getPatch().param_ptr[learn_param_from_cc]->midictrl = cc_encoded;
             storage.getPatch().param_ptr[learn_param_from_cc]->midichan = channel;
+            storage.getPatch().param_ptr[learn_param_from_cc]->miditakeover_status = sts_locked;
 
             learn_param_from_cc = -1;
         }
@@ -2330,27 +2335,93 @@ void SurgeSynthesizer::channelController(char channel, int cc, int value)
 
     for (int i = 0; i < (n_global_params + (n_scene_params * n_scenes)); i++)
     {
-        if (storage.getPatch().param_ptr[i]->midictrl == cc_encoded &&
-            (storage.getPatch().param_ptr[i]->midichan == channel ||
-             storage.getPatch().param_ptr[i]->midichan == -1))
-        {
-            this->setParameterSmoothed(i, fval);
-            int j = 0;
+        auto p = storage.getPatch().param_ptr[i];
 
-            while (j < 7)
+        if (p->midictrl == cc_encoded && (p->midichan == channel || p->midichan == -1))
+        {
+            bool applyControl{true};
+            if (midiSoftTakeover && p->miditakeover_status != sts_locked)
             {
-                if ((refresh_ctrl_queue[j] > -1) && (refresh_ctrl_queue[j] != i))
+                const auto pval = p->get_value_f01();
+                /*
+                std::cout << "Takeover " << p->get_full_name() << " " << pval << " " << fval
+                          << " " << p->miditakeover_status
+                          << std::endl;
+                          */
+
+                static constexpr float buffer = {1.5f / 127.f}; // 1.5 midi CCs away
+
+                switch (p->miditakeover_status)
                 {
-                    j++;
-                }
-                else
-                {
+                case sts_waiting_for_first_look:
+                    if (fval < pval - buffer)
+                    {
+                        // printf("wait for val below\n");
+                        p->miditakeover_status = sts_waiting_below;
+                    }
+                    else if (fval > pval + buffer)
+                    {
+                        // printf("wait for val above\n");
+                        p->miditakeover_status = sts_waiting_above;
+                    }
+                    else
+                    {
+                        // printf("wait for val locked\n");
+                        p->miditakeover_status = sts_locked;
+                    }
                     break;
+                case sts_waiting_below:
+                    if (fval > pval - buffer)
+                    {
+                        // printf("waiting below locked\n");
+                        p->miditakeover_status = sts_locked;
+                    }
+                    break;
+                case sts_waiting_above:
+                    if (fval < pval + buffer)
+                    {
+                        // printf("waiting above locked\n");
+                        p->miditakeover_status = sts_locked;
+                    }
+                    break;
+                default:
+                    break;
+                }
+
+                if (p->miditakeover_status != sts_locked)
+                {
+                    // printf("not locked\n");
+                    applyControl = false;
                 }
             }
 
-            refresh_ctrl_queue[j] = i;
-            refresh_ctrl_queue_value[j] = fval;
+            if (applyControl)
+            {
+                // std::cout << "About to set parameter to " << fval << std::endl;
+
+                this->setParameterSmoothed(i, fval);
+
+                // Notify audio thread param change listeners (OSC, e.g.)
+                // (which run on juce messenger thread)
+                for (const auto &it : audioThreadParamListeners)
+                    (it.second)(storage.getPatch().param_ptr[i]->oscName, fval, "");
+
+                int j = 0;
+                while (j < 7)
+                {
+                    if ((refresh_ctrl_queue[j] > -1) && (refresh_ctrl_queue[j] != i))
+                    {
+                        j++;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+
+                refresh_ctrl_queue[j] = i;
+                refresh_ctrl_queue_value[j] = fval;
+            }
         }
     }
 }
@@ -2712,7 +2783,17 @@ bool SurgeSynthesizer::setParameter01(long index, float value, bool external, bo
                 int s = storage.getPatch().param_ptr[index]->scene - 1;
                 release_if_latched[s & 1] = true;
                 release_anyway[s & 1] = true;
-                // release old notes if previous polymode was latch
+                if (!voices[s].empty())
+                {
+                    // The release if latched initiates a release scene
+                    // which kills all voices but doesn't clear up the
+                    // keyboard state. So
+                    for (auto &v : voices[s])
+                    {
+                        const auto &st = v->state;
+                        channelState[st.channel].keyState[st.key].keystate = 0;
+                    }
+                }
             }
             break;
         case ct_filtertype:
@@ -2874,20 +2955,25 @@ bool SurgeSynthesizer::setParameter01(long index, float value, bool external, bo
 
     if (external && !need_refresh)
     {
-        bool got = false;
-        for (int i = 0; i < 8; i++)
-        {
-            if (refresh_parameter_queue[i] < 0 || refresh_parameter_queue[i] == index)
-            {
-                refresh_parameter_queue[i] = index;
-                got = true;
-                break;
-            }
-        }
-        if (!got)
-            refresh_overflow = true;
+        queueForRefresh(index);
     }
     return need_refresh;
+}
+
+void SurgeSynthesizer::queueForRefresh(int param_index)
+{
+    bool got = false;
+    for (int i = 0; i < 8; i++)
+    {
+        if (refresh_parameter_queue[i] < 0 || refresh_parameter_queue[i] == param_index)
+        {
+            refresh_parameter_queue[i] = param_index;
+            got = true;
+            break;
+        }
+    }
+    if (!got)
+        refresh_overflow = true;
 }
 
 void SurgeSynthesizer::switch_toggled()
@@ -3110,50 +3196,64 @@ bool SurgeSynthesizer::loadOscalgos()
         for (int i = 0; i < n_oscs; i++)
         {
             localResendOscParams[s][i] = false;
-            if (storage.getPatch().scene[s].osc[i].queue_type > -1)
+            auto &osc_st = storage.getPatch().scene[s].osc[i];
+            if (osc_st.queue_type > -1)
             {
                 algosChanged = true;
-                // clear assigned modulation if we change osc type, see issue #2224
-                if (storage.getPatch().scene[s].osc[i].queue_type !=
-                    storage.getPatch().scene[s].osc[i].type.val.i)
+                // clear assigned modulation, and echo to OSC if we change osc type, see issue #2224
+                if (osc_st.queue_type != osc_st.type.val.i)
                 {
                     clear_osc_modulation(s, i);
                 }
 
-                storage.getPatch().scene[s].osc[i].type.val.i =
-                    storage.getPatch().scene[s].osc[i].queue_type;
-                storage.getPatch().update_controls(false, &storage.getPatch().scene[s].osc[i]);
-                storage.getPatch().scene[s].osc[i].queue_type = -1;
+                // Notify audio thread param change listeners (OSC, e.g.)
+                // (which run on juce messenger thread)
+                std::stringstream sb;
+                sb << "/param/" << (char)('a' + s) << "/osc/" << i + 1 << "/type";
+                auto new_type = osc_st.queue_type;
+                for (const auto &it : audioThreadParamListeners)
+                    (it.second)(sb.str(), new_type, osc_type_names[new_type]);
+
+                osc_st.type.val.i = osc_st.queue_type;
+                storage.getPatch().update_controls(false, &osc_st);
+                osc_st.queue_type = -1;
                 switch_toggled_queued = true;
                 refresh_editor = true;
                 localResendOscParams[s][i] = true;
             }
 
-            TiXmlElement *e = (TiXmlElement *)storage.getPatch().scene[s].osc[i].queue_xmldata;
+            TiXmlElement *e = (TiXmlElement *)osc_st.queue_xmldata;
             if (e)
             {
                 storage.getPatch().isDirty = true;
 
                 for (int k = 0; k < n_osc_params; k++)
                 {
+                    std::string oname = osc_st.p[k].oscName;
+                    std::string sx = osc_st.p[k].get_name();
+
                     double d;
                     int j;
                     std::string lbl;
 
                     lbl = fmt::format("p{:d}", k);
 
-                    if (storage.getPatch().scene[s].osc[i].p[k].valtype == vt_float)
+                    if (osc_st.p[k].valtype == vt_float)
                     {
                         if (e->QueryDoubleAttribute(lbl.c_str(), &d) == TIXML_SUCCESS)
                         {
-                            storage.getPatch().scene[s].osc[i].p[k].val.f = (float)d;
+                            osc_st.p[k].val.f = (float)d;
+                            for (const auto &it : audioThreadParamListeners)
+                                (it.second)(oname, d, sx);
                         }
                     }
                     else
                     {
                         if (e->QueryIntAttribute(lbl.c_str(), &j) == TIXML_SUCCESS)
                         {
-                            storage.getPatch().scene[s].osc[i].p[k].val.i = j;
+                            osc_st.p[k].val.i = j;
+                            for (const auto &it : audioThreadParamListeners)
+                                (it.second)(oname, j, sx);
                         }
                     }
 
@@ -3161,31 +3261,40 @@ bool SurgeSynthesizer::loadOscalgos()
 
                     if (e->QueryIntAttribute(lbl.c_str(), &j) == TIXML_SUCCESS)
                     {
-                        storage.getPatch().scene[s].osc[i].p[k].deform_type = j;
+                        osc_st.p[k].deform_type = j;
+                        for (const auto &it : audioThreadParamListeners)
+                            (it.second)(oname, j, sx);
                     }
 
                     lbl = fmt::format("p{:d}_extend_range", k);
 
                     if (e->QueryIntAttribute(lbl.c_str(), &j) == TIXML_SUCCESS)
                     {
-                        storage.getPatch().scene[s].osc[i].p[k].set_extend_range(j);
+                        osc_st.p[k].set_extend_range(j);
+                        for (const auto &it : audioThreadParamListeners)
+                            (it.second)(oname, j, sx);
                     }
                 }
 
                 int rt;
                 if (e->QueryIntAttribute("retrigger", &rt) == TIXML_SUCCESS)
                 {
-                    storage.getPatch().scene[s].osc[i].retrigger.val.b = rt;
+                    osc_st.retrigger.val.b = rt;
+                    std::stringstream sb;
+                    sb << "/param/" << (char)('a' + s) << "/osc/" << i + 1 << "/retrigger";
+                    std::string sx = rt > 0 ? "On" : "Off";
+                    for (const auto &it : audioThreadParamListeners)
+                        (it.second)(sb.str(), rt, sx);
                 }
 
                 /*
                  * Some oscillator types can change display when you change values
                  */
-                if (storage.getPatch().scene[s].osc[i].type.val.i == ot_modern)
+                if (osc_st.type.val.i == ot_modern)
                 {
                     refresh_editor = true;
                 }
-                storage.getPatch().scene[s].osc[i].queue_xmldata = 0;
+                osc_st.queue_xmldata = 0;
             }
         }
     }
@@ -3471,6 +3580,14 @@ void SurgeSynthesizer::prepareModsourceDoProcess(int scenemask)
 {
     for (int scene = 0; scene < n_scenes; scene++)
     {
+        bool anyFormula{false};
+        for (auto &lfs : storage.getPatch().scene[scene].lfo)
+        {
+            if (lfs.shape.val.i == lt_formula)
+            {
+                anyFormula = true;
+            }
+        }
         if ((1 << scene) & scenemask)
         {
             for (int i = 0; i < n_modsources; i++)
@@ -3486,6 +3603,13 @@ void SurgeSynthesizer::prepareModsourceDoProcess(int scenemask)
                     }
                 }
                 storage.getPatch().scene[scene].modsource_doprocess[i] = setTo;
+
+                if (i == ms_pitchbend || i == ms_aftertouch || i == ms_modwheel || i == ms_breath ||
+                    i == ms_expression || i == ms_sustain || i == ms_lowest_key ||
+                    i == ms_highest_key || i == ms_latest_key)
+                {
+                    storage.getPatch().scene[scene].modsource_doprocess[i] |= anyFormula;
+                }
             }
 
             for (int j = 0; j < 3; j++)
@@ -4347,7 +4471,7 @@ void SurgeSynthesizer::processControl()
                     if (lms)
                     {
                         Surge::Formula::setupEvaluatorStateFrom(lms->formulastate,
-                                                                storage.getPatch());
+                                                                storage.getPatch(), s);
                     }
                 }
                 storage.getPatch().scene[s].modsources[ms_slfo1 + i]->process_block();
@@ -4361,11 +4485,14 @@ void SurgeSynthesizer::processControl()
     for (int i = 0; i < n; i++)
     {
         int src_id = storage.getPatch().modulation_global[i].source_id;
+        int src_index = storage.getPatch().modulation_global[i].source_index;
         int dst_id = storage.getPatch().modulation_global[i].destination_id;
         float depth = storage.getPatch().modulation_global[i].depth;
         int source_scene = storage.getPatch().modulation_global[i].source_scene;
+
         storage.getPatch().globaldata[dst_id].f +=
-            depth * storage.getPatch().scene[source_scene].modsources[src_id]->get_output(0) *
+            depth *
+            storage.getPatch().scene[source_scene].modsources[src_id]->get_output(src_index) *
             (1 - storage.getPatch().modulation_global[i].muted);
     }
 
@@ -4688,6 +4815,7 @@ void SurgeSynthesizer::process()
 
     storage.modRoutingMutex.unlock();
     polydisplay = vcount;
+    storage.voiceCount = vcount;
 
     // TODO: FIX SCENE ASSUMPTION
     if (play_scene[0])

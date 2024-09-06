@@ -159,11 +159,11 @@ TEST_CASE("Surge Prelude", "[lua]")
         REQUIRE(L);
         luaL_openlibs(L);
 
-        REQUIRE(Surge::LuaSupport::loadSurgePrelude(L));
+        REQUIRE(Surge::LuaSupport::loadSurgePrelude(L, Surge::LuaSources::formula_prelude));
 
         std::string emsg;
         REQUIRE(Surge::LuaSupport::parseStringDefiningFunction(
-            L, Surge::LuaSources::surge_prelude_test, "test", emsg));
+            L, Surge::LuaSources::formula_prelude_test, "test", emsg));
         Surge::LuaSupport::setSurgeFunctionEnvironment(L);
 
         auto pcall = lua_pcall(L, 0, 1, 0);
@@ -202,13 +202,11 @@ end
         {
             lua_createtable(L, 0, 4);
 
-            lua_pushstring(L, "a");
             lua_pushnumber(L, 13);
-            lua_settable(L, -3); /* 3rd element from the stack top */
+            lua_setfield(L, -2, "a"); /* 2nd element from the stack top */
 
-            lua_pushstring(L, "b");
             lua_pushnumber(L, 27);
-            lua_settable(L, -3);
+            lua_setfield(L, -2, "b");
 
             // So now the table is the top of the stack so
             lua_pcall(L, 1, 1, 0);
@@ -665,24 +663,25 @@ TEST_CASE("Wavetable Script", "[formula]")
 {
     SECTION("Just The Sines")
     {
+        SurgeStorage storage;
         const std::string s = R"FN(
 function generate(config)
     res = config.xs
     for i,x in ipairs(config.xs) do
-        res[i] = math.sin(x * (config.n+1) * 2 * math.pi)
+        res[i] = math.sin(2 * math.pi * x * config.n)
     end
     return res
 end
         )FN";
         for (int fno = 0; fno < 4; ++fno)
         {
-            auto fr = Surge::WavetableScript::evaluateScriptAtFrame(s, 512, fno, 4);
+            auto fr = Surge::WavetableScript::evaluateScriptAtFrame(nullptr, s, 512, fno, 4);
             REQUIRE(fr.size() == 512);
             auto dp = 1.0 / (512 - 1);
             for (int i = 0; i < 512; ++i)
             {
                 auto x = i * dp;
-                auto r = sin(x * (fno + 1) * 2 * M_PI);
+                auto r = sin(2 * M_PI * x * (fno + 1));
                 REQUIRE(r == Approx(fr[i]));
             }
         }

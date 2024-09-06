@@ -14,11 +14,6 @@ else()
   add_library(surge::oddsound-mts ALIAS oddsound-mts)
 endif()
 
-if(MINGW)
-  set(HAVE_VISIBILITY 0 CACHE INTERNAL "Force-disable libsamplerate's visibility check on MinGW")
-endif()
-
-surge_add_lib_subdirectory(libsamplerate)
 surge_add_lib_subdirectory(pffft)
 surge_add_lib_subdirectory(tuning-library)
 surge_add_lib_subdirectory(sqlite-3.23.3)
@@ -40,7 +35,7 @@ if(NOT SURGE_SKIP_LUA)
     target_link_libraries(luajit-5.1 INTERFACE ${LUA_LIBRARIES})
     target_compile_definitions(luajit-5.1 INTERFACE HAS_LUAJIT=0)
   else()
-    surge_add_lib_subdirectory(LuaJitLib)
+    surge_add_lib_subdirectory(luajitlib)
     target_compile_definitions(luajit-5.1 INTERFACE HAS_LUAJIT=1)
   endif()
   target_compile_definitions(luajit-5.1 INTERFACE HAS_LUA=1)
@@ -267,7 +262,6 @@ add_library(${PROJECT_NAME}
   dsp/effects/chowdsp/tape/ToneControl.h
   dsp/effects/AudioInputEffect.cpp
   dsp/effects/AudioInputEffect.h
-  dsp/filters/AllpassFilter.h
   dsp/filters/BiquadFilter.h
   dsp/filters/VectorizedSVFilter.cpp
   dsp/filters/VectorizedSVFilter.h
@@ -388,7 +382,6 @@ target_link_libraries(${PROJECT_NAME}
   PUBLIC
   fmt
   luajit-5.1
-  samplerate
   surge::airwindows
   surge::eurorack
 

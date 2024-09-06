@@ -489,7 +489,6 @@ SurgePatch::SurgePatch(SurgeStorage *storage)
                 sc_id, cg_FILTER, f, true));
         }
 
-        // scene[sc].filterunit[0].type.val.i = 1;
         for (int e = 0; e < 2; e++) // 2 = we have two envelopes, filter and amplifier
         {
             std::string et = (e == 1) ? "feg" : "aeg";
@@ -529,9 +528,12 @@ SurgePatch::SurgePatch(SurgeStorage *storage)
                 fmt::format("{:c}/{}/sustain", 'a' + sc, et), ct_percent, getCon("sustain"), sc_id,
                 cg_ENV, e, true, int(kVertical) | int(kWhite) | int(sceasy)));
 
+            // only show Freeze at sustain level option for amplifier envelope
+            const auto ctype = (e == 0) ? ct_envtime_deformable : ct_envtime;
+
             a->push_back(scene[sc].adsr[e].r.assign(
                 p_id.next(), id_s++, "release", "Release",
-                fmt::format("{:c}/{}/release", 'a' + sc, et), ct_envtime, getCon("release"), sc_id,
+                fmt::format("{:c}/{}/release", 'a' + sc, et), ctype, getCon("release"), sc_id,
                 cg_ENV, e, true, int(kVertical) | int(kWhite) | int(sceasy)));
 
             a->push_back(scene[sc].adsr[e].r_s.assign(
@@ -2256,6 +2258,31 @@ void SurgePatch::load_xml(const void *data, int datasize, bool is_preset)
         }
     }
 
+    if (revision <= 22)
+    {
+        for (auto sc = 0; sc < n_scenes; ++sc)
+        {
+            scene[sc].adsr[0].r.deform_type = 0;
+            scene[sc].adsr[1].r.deform_type = 0;
+        }
+    }
+
+    if (revision <= 23)
+    {
+        for (auto sc = 0; sc < n_scenes; ++sc)
+        {
+            // adds corrected 3 and 4 modes in middle of deform type
+            if (scene[sc].level_ring_12.deform_type > 4)
+            {
+                scene[sc].level_ring_12.deform_type += 2;
+            }
+            if (scene[sc].level_ring_23.deform_type > 4)
+            {
+                scene[sc].level_ring_23.deform_type += 2;
+            }
+        }
+    }
+
     // ensure that filter subtype is a valid value
     for (auto &sc : scene)
     {
@@ -2642,6 +2669,32 @@ void SurgePatch::load_xml(const void *data, int datasize, bool is_preset)
         }
     }
 
+    bool userPrefOverrideTempoOnPatchLoad = Surge::Storage::getUserDefaultValue(
+        storage, Surge::Storage::OverrideTempoOnPatchLoad, true);
+
+    TiXmlElement *tos = TINYXML_SAFE_TO_ELEMENT(patch->FirstChild("tempoOnSave"));
+
+    if (revision < 23)
+    {
+        d = -1.0;
+    }
+    else
+    {
+        if (tos->QueryDoubleAttribute("v", &d) != TIXML_SUCCESS)
+        {
+            d = 120.0;
+        }
+    }
+
+    if (userPrefOverrideTempoOnPatchLoad)
+    {
+        storage->unstreamedTempo = (float)d;
+    }
+    else
+    {
+        storage->unstreamedTempo = -1.f;
+    }
+
     dawExtraState.isPopulated = false;
     TiXmlElement *de = TINYXML_SAFE_TO_ELEMENT(patch->FirstChild("dawExtraState"));
 
@@ -2822,6 +2875,26 @@ void SurgePatch::load_xml(const void *data, int datasize, bool is_preset)
                             }
                         }
                     }
+
+                    for (int osc = 0; osc < n_oscs; osc++)
+                    {
+                        std::string wsns =
+                            "wtse_state_" + std::to_string(sc) + "_" + std::to_string(osc);
+                        auto wss = TINYXML_SAFE_TO_ELEMENT(p->FirstChild(wsns));
+
+                        if (wss)
+                        {
+                            auto q = &(dawExtraState.editor.wavetableScriptEditState[sc][osc]);
+                            int vv;
+
+                            q->codeOrPrelude = 0;
+
+                            if (wss->QueryIntAttribute("codeOrPrelude", &vv) == TIXML_SUCCESS)
+                            {
+                                q->codeOrPrelude = vv;
+                            }
+                        }
+                    }
                 } // end of scene loop
 
                 {
@@ -2989,6 +3062,17 @@ void SurgePatch::load_xml(const void *data, int datasize, bool is_preset)
             else
             {
                 dawExtraState.oddsoundRetuneMode = SurgeStorage::RETUNE_CONSTANT;
+            }
+
+            p = TINYXML_SAFE_TO_ELEMENT(de->FirstChild("tuningApplicationMode"));
+
+            if (p && p->QueryIntAttribute("v", &ival) == TIXML_SUCCESS)
+            {
+                dawExtraState.tuningApplicationMode = ival;
+            }
+            else
+            {
+                dawExtraState.tuningApplicationMode = 1; // RETUNE_MIDI_ONLY
             }
 
             auto mts_main = TINYXML_SAFE_TO_ELEMENT(de->FirstChild("oddsound_mts_active_as_main"));
@@ -3560,7 +3644,7 @@ unsigned int SurgePatch::save_xml(void **data) // allocates mem, must be freed b
     }
 
     {
-        TiXmlElement compat("compatability");
+        TiXmlElement compat("compatability"); // TODO: Fix typo for XT2, LOL!
 
         TiXmlElement comb("correctlyTunedCombFilter");
         comb.SetAttribute("v", correctlyTuneCombFilter ? 1 : 0);
@@ -3584,6 +3668,10 @@ unsigned int SurgePatch::save_xml(void **data) // allocates mem, must be freed b
 
         patch.InsertEndChild(pt);
     }
+
+    TiXmlElement tempoOnSave("tempoOnSave");
+    tempoOnSave.SetDoubleAttribute("v", storage->temposyncratio * 120.0);
+    patch.InsertEndChild(tempoOnSave);
 
     TiXmlElement dawExtraXML("dawExtraState");
     dawExtraXML.SetAttribute("populated", dawExtraState.isPopulated ? 1 : 0);
@@ -3648,6 +3736,17 @@ unsigned int SurgePatch::save_xml(void **data) // allocates mem, must be freed b
                 fss.SetAttribute("debuggerOpen", q->debuggerOpen);
 
                 eds.InsertEndChild(fss);
+            }
+
+            for (int os = 0; os < n_oscs; ++os)
+            {
+                auto q = &(dawExtraState.editor.wavetableScriptEditState[sc][os]);
+                std::string wsns = "wtse_state_" + std::to_string(sc) + "_" + std::to_string(os);
+                TiXmlElement wss(wsns);
+
+                wss.SetAttribute("codeOrPrelude", q->codeOrPrelude);
+
+                eds.InsertEndChild(wss);
             }
 
             TiXmlElement modEd("modulation_editor");
@@ -3736,6 +3835,10 @@ unsigned int SurgePatch::save_xml(void **data) // allocates mem, must be freed b
         TiXmlElement osd("oddsoundRetuneMode");
         osd.SetAttribute("v", dawExtraState.oddsoundRetuneMode);
         dawExtraXML.InsertEndChild(osd);
+
+        TiXmlElement tam("tuningApplicationMode");
+        tam.SetAttribute("v", dawExtraState.tuningApplicationMode);
+        dawExtraXML.InsertEndChild(tam);
 
         TiXmlElement tun("hasTuning"); // see comment: Keep this name here for legacy compat
         tun.SetAttribute("v", dawExtraState.hasScale ? 1 : 0);

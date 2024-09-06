@@ -51,6 +51,13 @@ static_assert(__cplusplus == 201703L, "Surge requires C++17; please update your 
     (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
 #include <emmintrin.h>
 #else
+// With the upgrade to simde 0.8.2 and subsequent conversations
+// with simde maintainers, this include should work for every
+// non-intel platform, so remove the prior condition
+//
+// #if defined(__arm__) || defined(__aarch64__) || defined(__riscv)
+//
+// and just always include this in the else side
 #define SIMDE_ENABLE_NATIVE_ALIASES
 #include "simde/x86/sse2.h"
 #endif
@@ -66,10 +73,6 @@ static inline int _stricmp(const char *s1, const char *s2) { return strcasecmp(s
 
 #if !defined(SURGE_COMPILE_BLOCK_SIZE)
 #error You must compile with -DSURGE_COMPILE_BLOCK_SIZE=32 (or whatnot)
-#endif
-
-#ifndef SURGE_HAS_OSC
-#define SURGE_HAS_OSC 1
 #endif
 
 const int BASE_WINDOW_SIZE_X = 913;

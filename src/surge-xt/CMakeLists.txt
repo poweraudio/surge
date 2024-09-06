@@ -44,7 +44,10 @@ juce_add_plugin(${PROJECT_NAME}
   COPY_PLUGIN_AFTER_BUILD ${SURGE_COPY_AFTER_BUILD}
 
   VST3_CATEGORIES Instrument Synth
+  VST3_AUTO_MANIFEST FALSE
+
   VST2_CATEGORY kPlugCategSynth
+
   AU_MAIN_TYPE kAudioUnitType_MusicDevice
   AU_SANDBOX_SAFE TRUE
 
@@ -62,11 +65,16 @@ if(SURGE_BUILD_CLAP)
     CLAP_ID "org.surge-synth-team.surge-xt"
 
     CLAP_SUPPORTS_CUSTOM_FACTORY 1
-    CLAP_FEATURES "instrument" "synthesizer" "hybrid" "free and open source")
+    CLAP_FEATURES "instrument" "synthesizer" "stereo" "free and open source")
 endif()
 
 if(JUCE_ASIO_SUPPORT)
   target_compile_definitions(${PROJECT_NAME} PUBLIC JUCE_ASIO=1)
+endif()
+
+if (SURGE_EXPOSE_PRESETS)
+  message(STATUS "Building with JUCE Preset API (getProgramName etc) enabled")
+  target_compile_definitions(${PROJECT_NAME} PUBLIC SURGE_EXPOSE_PRESETS=1)
 endif()
 
 target_sources(${PROJECT_NAME} PRIVATE

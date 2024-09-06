@@ -219,6 +219,7 @@ Parameter *Parameter::assign(ParameterIDCounter::promise_t idp, int pid, const c
     per_voice_processing = scene ? true : false;
     midictrl = -1;
     midichan = -1;
+    miditakeover_status = sts_waiting_for_first_look;
 
     clear_flags();
 
@@ -256,6 +257,7 @@ bool Parameter::can_temposync() const
     case ct_lforate:
     case ct_lforate_deactivatable:
     case ct_envtime:
+    case ct_envtime_deformable:
     case ct_envtime_deactivatable:
     case ct_envtime_linkable_delay:
     case ct_envtime_lfodecay:
@@ -274,6 +276,7 @@ bool Parameter::can_extend_range() const
     case ct_pitch_semi7bp:
     case ct_pitch_semi7bp_absolutable:
     case ct_pitch_extendable_very_low_minval:
+    case ct_freq_fm2_offset:
     case ct_freq_reson_band1:
     case ct_freq_reson_band2:
     case ct_freq_reson_band3:
@@ -372,6 +375,7 @@ bool Parameter::has_deformoptions() const
     case ct_noise_color:
     case ct_amplitude_ringmod:
     case ct_bonsai_bass_boost:
+    case ct_envtime_deformable:
     case ct_filter_feedback:
     case ct_osc_feedback_negative:
         return true;
@@ -412,6 +416,7 @@ bool Parameter::is_bipolar() const
     case ct_percent_bipolar_w_dynamic_unipolar_formatting:
     case ct_noise_color:
     case ct_twist_aux_mix:
+    case ct_freq_fm2_offset:
     case ct_freq_shift:
     case ct_filter_feedback:
     case ct_osc_feedback_negative:
@@ -701,6 +706,7 @@ void Parameter::set_type(int ctrltype)
         val_default.f = 0; // semitones
         moverate = 0.5f;
         break;
+    case ct_freq_fm2_offset:
     case ct_freq_shift:
         valtype = vt_float;
         val_min.f = -10;   // Hz
@@ -775,6 +781,7 @@ void Parameter::set_type(int ctrltype)
         val_default.f = -8;
         break;
     case ct_envtime:
+    case ct_envtime_deformable:
     case ct_envtime_deactivatable:
     case ct_envtime_linkable_delay:
     case ct_envtime_lfodecay:
@@ -1399,13 +1406,13 @@ void Parameter::set_type(int ctrltype)
     case ct_tape_drive:
         displayType = LinearWithScale;
         snprintf(displayInfo.unit, DISPLAYINFO_TXT_SIZE, "%%");
-        displayInfo.scale = 100;
+        displayInfo.scale = 100.f;
         break;
     case ct_percent_bipolar_w_dynamic_unipolar_formatting:
     case ct_twist_aux_mix:
         displayType = LinearWithScale;
         snprintf(displayInfo.unit, DISPLAYINFO_TXT_SIZE, "%%");
-        displayInfo.scale = 100;
+        displayInfo.scale = 100.f;
         displayInfo.customFeatures = ParamDisplayFeatures::kScaleBasedOnIsBiPolar;
         break;
     case ct_percent_bipolar_stereo:
@@ -1418,7 +1425,7 @@ void Parameter::set_type(int ctrltype)
         snprintf(displayInfo.minLabel, DISPLAYINFO_TXT_SIZE, "-100.00 %% (Left)");
         snprintf(displayInfo.defLabel, DISPLAYINFO_TXT_SIZE, "0.00 %% (Stereo)");
         snprintf(displayInfo.maxLabel, DISPLAYINFO_TXT_SIZE, "100.00 %% (Right)");
-        displayInfo.scale = 100;
+        displayInfo.scale = 100.f;
         break;
     case ct_percent_bipolar_pan:
         displayType = LinearWithScale;
@@ -1430,7 +1437,7 @@ void Parameter::set_type(int ctrltype)
         snprintf(displayInfo.minLabel, DISPLAYINFO_TXT_SIZE, "-100.00 %% (Left)");
         snprintf(displayInfo.defLabel, DISPLAYINFO_TXT_SIZE, "0.00 %% (Center)");
         snprintf(displayInfo.maxLabel, DISPLAYINFO_TXT_SIZE, "100.00 %% (Right)");
-        displayInfo.scale = 100;
+        displayInfo.scale = 100.f;
         break;
     case ct_percent_bipolar_stringbal:
         displayType = LinearWithScale;
@@ -1442,18 +1449,18 @@ void Parameter::set_type(int ctrltype)
         snprintf(displayInfo.minLabel, DISPLAYINFO_TXT_SIZE, "-100.00 %% (String 1)");
         snprintf(displayInfo.defLabel, DISPLAYINFO_TXT_SIZE, "0.00 %% (Strings 1+2)");
         snprintf(displayInfo.maxLabel, DISPLAYINFO_TXT_SIZE, "100.00 %% (String 2)");
-        displayInfo.scale = 100;
+        displayInfo.scale = 100.f;
         break;
 
         /*
           Again the missing breaks here are on purpose but we pick out a few for Tuning later
          */
     case ct_pitch_semi7bp_absolutable:
-        displayInfo.absoluteFactor = 10.0;
+        displayInfo.absoluteFactor = 10.f;
         snprintf(displayInfo.absoluteUnit, DISPLAYINFO_TXT_SIZE, "Hz");
     case ct_pitch_semi7bp:
     case ct_flangerspacing:
-        displayInfo.extendFactor = 12.0;
+        displayInfo.extendFactor = 12.f;
     case ct_pitch:
     case ct_pitch4oct:
     case ct_pitch_extendable_very_low_minval:
@@ -1491,19 +1498,24 @@ void Parameter::set_type(int ctrltype)
         displayInfo.supportsNoteName = true;
         displayInfo.customFeatures = ParamDisplayFeatures::kAllowsModulationsInNotesAndCents;
         break;
-
+    case ct_freq_fm2_offset:
+        displayType = LinearWithScale;
+        snprintf(displayInfo.unit, DISPLAYINFO_TXT_SIZE, "Hz");
+        displayInfo.extendFactor = 100.f;
+        break;
     case ct_freq_shift:
         displayType = LinearWithScale;
         snprintf(displayInfo.unit, DISPLAYINFO_TXT_SIZE, "Hz");
-        displayInfo.extendFactor = 100.0;
+        displayInfo.scale = 10.f;
+        displayInfo.extendFactor = 100.f;
         break;
-
     case ct_envtime_lfodecay:
         snprintf(displayInfo.maxLabel, DISPLAYINFO_TXT_SIZE, "Forever");
         displayInfo.customFeatures = ParamDisplayFeatures::kHasCustomMaxString;
         // THERE IS NO BREAK HERE ON PURPOSE so we group to the others
     case ct_portatime:
     case ct_envtime:
+    case ct_envtime_deformable:
     case ct_envtime_deactivatable:
     case ct_envtime_linkable_delay:
     case ct_reverbtime:
@@ -1532,19 +1544,19 @@ void Parameter::set_type(int ctrltype)
     case ct_decibel_extendable:
         displayType = LinearWithScale;
         snprintf(displayInfo.unit, DISPLAYINFO_TXT_SIZE, "dB");
-        displayInfo.extendFactor = 3;
+        displayInfo.extendFactor = 3.f;
         break;
 
     case ct_decibel_narrow_extendable:
         displayType = LinearWithScale;
         snprintf(displayInfo.unit, DISPLAYINFO_TXT_SIZE, "dB");
-        displayInfo.extendFactor = 5;
+        displayInfo.extendFactor = 5.f;
         break;
 
     case ct_decibel_narrow_short_extendable:
         displayType = LinearWithScale;
         snprintf(displayInfo.unit, DISPLAYINFO_TXT_SIZE, "dB");
-        displayInfo.extendFactor = 2;
+        displayInfo.extendFactor = 2.f;
         break;
 
     case ct_decibel:
@@ -1560,7 +1572,7 @@ void Parameter::set_type(int ctrltype)
     case ct_decibel_extra_narrow_deactivatable:
     case ct_bonsai_bass_boost:
         displayType = LinearWithScale;
-        displayInfo.extendFactor = 3;
+        displayInfo.extendFactor = 3.f;
         snprintf(displayInfo.unit, DISPLAYINFO_TXT_SIZE, "dB");
         break;
 
@@ -1571,35 +1583,35 @@ void Parameter::set_type(int ctrltype)
 
     case ct_detuning:
         displayType = LinearWithScale;
-        displayInfo.scale = 100.0;
-        displayInfo.extendFactor = 6;
+        displayInfo.scale = 100.f;
+        displayInfo.extendFactor = 6.f;
         snprintf(displayInfo.unit, DISPLAYINFO_TXT_SIZE, "cents");
         break;
 
     case ct_stereowidth:
         displayType = LinearWithScale;
-        displayInfo.scale = 1.0;
+        displayInfo.scale = 1.f;
         snprintf(displayInfo.unit, DISPLAYINFO_TXT_SIZE, "º");
         break;
 
     case ct_oscspread:
     case ct_oscspread_bipolar:
         displayType = LinearWithScale;
-        displayInfo.scale = 100.0;
+        displayInfo.scale = 100.f;
         snprintf(displayInfo.unit, DISPLAYINFO_TXT_SIZE, "cents");
         snprintf(displayInfo.absoluteUnit, DISPLAYINFO_TXT_SIZE, "Hz");
         displayInfo.absoluteFactor =
             0.16; // absolute factor also takes scale into account hence the /100
-        displayInfo.extendFactor = 12;
+        displayInfo.extendFactor = 12.f;
         break;
 
     case ct_filter_feedback:
     case ct_osc_feedback:
     case ct_osc_feedback_negative:
         displayType = LinearWithScale;
-        displayInfo.scale = 100.0;
+        displayInfo.scale = 100.f;
         snprintf(displayInfo.unit, DISPLAYINFO_TXT_SIZE, "%%");
-        displayInfo.extendFactor = 4;
+        displayInfo.extendFactor = 4.f;
         break;
 
     case ct_amplitude:
@@ -1614,7 +1626,7 @@ void Parameter::set_type(int ctrltype)
     case ct_airwindows_param_bipolar:
     case ct_airwindows_param_integral:
         displayType = DelegatedToFormatter;
-        displayInfo.scale = 1.0;
+        displayInfo.scale = 1.f;
         displayInfo.unit[0] = 0;
         displayInfo.decimals = 3;
         break;
@@ -1649,14 +1661,14 @@ void Parameter::set_type(int ctrltype)
 
     case ct_tape_microns:
         displayType = LinearWithScale;
-        displayInfo.scale = 1.0f;
+        displayInfo.scale = 1.f;
         displayInfo.decimals = 2;
         snprintf(displayInfo.unit, DISPLAYINFO_TXT_SIZE, "μm");
         break;
 
     case ct_tape_speed:
         displayType = LinearWithScale;
-        displayInfo.scale = 1.0f;
+        displayInfo.scale = 1.f;
         displayInfo.decimals = 2;
         snprintf(displayInfo.unit, DISPLAYINFO_TXT_SIZE, "ips");
         break;
@@ -1675,7 +1687,7 @@ void Parameter::set_type(int ctrltype)
         break;
 
     case ct_float_toggle:
-        displayInfo.scale = 100.0f;
+        displayInfo.scale = 100.f;
         displayInfo.decimals = 2;
         snprintf(displayInfo.unit, DISPLAYINFO_TXT_SIZE, "%%");
         snprintf(displayInfo.minLabel, DISPLAYINFO_TXT_SIZE, "Off");
@@ -1864,6 +1876,7 @@ void Parameter::bound_value(bool force_integer)
         }
         case ct_portatime:
         case ct_envtime:
+        case ct_envtime_deformable:
         case ct_envtime_deactivatable:
         case ct_envtime_linkable_delay:
         case ct_envtime_lfodecay:
@@ -1904,16 +1917,18 @@ void Parameter::bound_value(bool force_integer)
             val.f = floor(val.f * 10) / 10.0;
             break;
         }
+        case ct_freq_fm2_offset:
         case ct_freq_shift:
         {
             if (extend_range)
             {
-                val.f = floor(val.f * 100) / 100.0;
+                val.f = floor((val.f * 1000.f) / 10.f) * 0.01f;
             }
             else
             {
-                val.f = floor(val.f + 0.5f);
+                val.f = floor((val.f * 10.f) + 0.5f) * 0.1f;
             }
+
             break;
         }
         case ct_countedset_percent:
@@ -2100,11 +2115,7 @@ void Parameter::set_extend_range(bool er)
 {
     bool prior_extend = extend_range;
 
-#if DEBUG_WRITABLE_EXTEND_RANGE
-    extend_range_internal = er;
-#else
     extend_range = er;
-#endif
 
     if (!extend_range)
     {
@@ -2234,6 +2245,7 @@ float Parameter::get_extended(float f) const
 
     switch (ctrltype)
     {
+    case ct_freq_fm2_offset:
     case ct_freq_shift:
         return 100.f * f;
     case ct_pitch_semi7bp:
@@ -2411,10 +2423,10 @@ void Parameter::get_display_of_modulation_depth(char *txt, float modulationDepth
         if (res.has_value())
         {
 #if DEBUG_MOD_STRINGS
-            std::cout << "  value  : " << res->value << std::endl;
-            std::cout << "  summm  : " << res->summary << std::endl;
-            std::cout << "  change : " << res->changeUp << " | " << res->changeDown << std::endl;
-            std::cout << "  vUpDn  : " << res->valUp << " | " << res->valDown << std::endl;
+            std::cout << "  value   : " << res->value << std::endl;
+            std::cout << "  summary : " << res->summary << std::endl;
+            std::cout << "  change  : " << res->changeUp << " | " << res->changeDown << std::endl;
+            std::cout << "  valUpDn : " << res->valUp << " | " << res->valDown << std::endl;
 #endif
             switch (displaymode)
             {
@@ -2606,6 +2618,11 @@ void Parameter::get_display_of_modulation_depth(char *txt, float modulationDepth
             int vdp = dp;
             std::string vu = u;
 
+            // Display modulation values
+            float dmp = mp;
+            float dmn = mn;
+            float diffFac{1.f};
+
             if (displayInfo.customFeatures & ParamDisplayFeatures::kSwitchesFromSecToMillisec)
             {
                 if (dval < 1.f)
@@ -2613,6 +2630,9 @@ void Parameter::get_display_of_modulation_depth(char *txt, float modulationDepth
                     dval *= 1000.f;
                     vu = "ms";
                     vdp = detailedMode ? 2 : 1;
+                    dmp *= 1000.f;
+                    dmn *= 1000.f;
+                    diffFac = 1000.f;
                 }
             }
 
@@ -2641,13 +2661,15 @@ void Parameter::get_display_of_modulation_depth(char *txt, float modulationDepth
                         char itxt[ITXT_SIZE];
                         snprintf(itxt, ITXT_SIZE, "%.*f %s", vdp, dval, vu.c_str());
                         iw->val = itxt;
-                        snprintf(itxt, ITXT_SIZE, "%.*f", dp, mp);
+                        snprintf(itxt, ITXT_SIZE, "%.*f", dp, dmp);
                         iw->valplus = itxt;
-                        snprintf(itxt, ITXT_SIZE, "%.*f", dp, mn);
+                        snprintf(itxt, ITXT_SIZE, "%.*f", dp, dmn);
                         iw->valminus = itxt;
-                        snprintf(itxt, ITXT_SIZE, "%s%.*f", (mp - v > 0 ? "+" : ""), dp, mp - v);
+                        snprintf(itxt, ITXT_SIZE, "%s%.*f", (mp - v > 0 ? "+" : ""), dp,
+                                 diffFac * (mp - v));
                         iw->dvalplus = itxt;
-                        snprintf(itxt, ITXT_SIZE, "%s%.*f", (mn - v > 0 ? "+" : ""), dp, mn - v);
+                        snprintf(itxt, ITXT_SIZE, "%s%.*f", (mn - v > 0 ? "+" : ""), dp,
+                                 diffFac * (mn - v));
                         iw->dvalminus = itxt;
 
                         if (displayInfo.customFeatures & ParamDisplayFeatures::kHasCustomMaxString)
@@ -2665,8 +2687,8 @@ void Parameter::get_display_of_modulation_depth(char *txt, float modulationDepth
                         }
                     }
 
-                    snprintf(txt, TXT_SIZE, "%.*f %s %.*f %s %.*f %s", dp, mn, lowersep, vdp, dval,
-                             uppersep, dp, mp, vu.c_str());
+                    snprintf(txt, TXT_SIZE, "%.*f %s %.*f %s %.*f %s", dp, dmn, lowersep, vdp, dval,
+                             uppersep, dp, dmp, vu.c_str());
                 }
                 else
                 {
@@ -2675,15 +2697,16 @@ void Parameter::get_display_of_modulation_depth(char *txt, float modulationDepth
                         char itxt[ITXT_SIZE];
                         snprintf(itxt, ITXT_SIZE, "%.*f %s", vdp, dval, vu.c_str());
                         iw->val = itxt;
-                        snprintf(itxt, ITXT_SIZE, "%.*f", dp, mn);
+                        snprintf(itxt, ITXT_SIZE, "%.*f", dp, dmp);
                         iw->valplus = itxt;
                         iw->valminus = "";
-                        snprintf(itxt, ITXT_SIZE, "%s%.*f", (mp - v > 0 ? "+" : ""), dp, mp - v);
+                        snprintf(itxt, ITXT_SIZE, "%s%.*f", (mp - v > 0 ? "+" : ""), dp,
+                                 diffFac * (mp - v));
                         iw->dvalplus = itxt;
                         iw->dvalminus = "";
                     }
 
-                    snprintf(txt, TXT_SIZE, "%.*f %s %.*f %s", vdp, dval, uppersep, dp, mp,
+                    snprintf(txt, TXT_SIZE, "%.*f %s %.*f %s", vdp, dval, uppersep, dp, dmp,
                              vu.c_str());
                 }
                 break;
@@ -3085,8 +3108,8 @@ float Parameter::quantize_modulation(float inputval) const
         // fall back
     case LinearWithScale:
     {
-        float ext_mul = (can_extend_range() && extend_range) ? displayInfo.extendFactor : 1.0;
-        float abs_mul = (can_be_absolute() && absolute) ? displayInfo.absoluteFactor : 1.0;
+        float ext_mul = (can_extend_range() && extend_range) ? displayInfo.extendFactor : 1.f;
+        float abs_mul = (can_be_absolute() && absolute) ? displayInfo.absoluteFactor : 1.f;
         float factor = ext_mul * abs_mul;
         float tempval = (val_max.f - val_min.f) * displayInfo.scale * factor;
 
@@ -3226,9 +3249,37 @@ void Parameter::get_display_alt(char *txt, bool external, float ef) const
         }
     }
 
+    int detailedMode =
+        Surge::Storage::getUserDefaultValue(storage, Surge::Storage::HighPrecisionReadouts, 0);
+
     txt[0] = 0;
     switch (ctrltype)
     {
+    case ct_lforate:
+    case ct_lforate_deactivatable:
+    {
+        float f = val.f;
+        float fInv = 0.f;
+        int dec = detailedMode ? 6 : displayInfo.decimals;
+        std::string u = "s";
+
+        fInv = 1.f / (displayInfo.a * powf(2.0f, f * displayInfo.b));
+
+        if (temposync)
+        {
+            fInv *= storage->temposyncratio_inv;
+        }
+
+        if (fInv < 1.f)
+        {
+            fInv *= 1000.f;
+            u = "ms";
+        }
+
+        snprintf(txt, TXT_SIZE, "%.*f %s", dec, fInv, u.c_str());
+
+        break;
+    }
     case ct_pitch_extendable_very_low_minval:
     case ct_freq_hpf:
     case ct_freq_audible:
@@ -4343,7 +4394,6 @@ bool Parameter::can_setvalue_from_string() const
     case ct_decibel_fmdepth:
     case ct_decibel_extendable:
     case ct_decibel_deactivatable:
-    case ct_envtime_linkable_delay:
     case ct_freq_audible:
     case ct_freq_audible_deactivatable:
     case ct_freq_audible_deactivatable_hp:
@@ -4354,13 +4404,16 @@ bool Parameter::can_setvalue_from_string() const
     case ct_freq_reson_band1:
     case ct_freq_reson_band2:
     case ct_freq_reson_band3:
+    case ct_freq_fm2_offset:
     case ct_freq_shift:
     case ct_freq_hpf:
     case ct_freq_vocoder_low:
     case ct_freq_vocoder_high:
     case ct_bandwidth:
     case ct_envtime:
+    case ct_envtime_deformable:
     case ct_envtime_deactivatable:
+    case ct_envtime_linkable_delay:
     case ct_envtime_lfodecay:
     case ct_delaymodtime:
     case ct_reverbtime:
@@ -4492,13 +4545,13 @@ bool Parameter::set_value_from_string_onto(const std::string &s, pdata &ontoThis
             switch (valtype)
             {
             case vt_int:
-                val.i = (int)std::round(*res);
+                ontoThis.i = (int)std::round(*res);
                 break;
             case vt_float:
-                val.f = *res;
+                ontoThis.f = *res;
                 break;
             case vt_bool:
-                val.b = (*res > 0.5);
+                ontoThis.b = (*res > 0.5);
                 break;
             }
             return true;
@@ -4734,8 +4787,8 @@ bool Parameter::set_value_from_string_onto(const std::string &s, pdata &ontoThis
             }
         }
 
-        float ext_mul = (can_extend_range() && extend_range) ? displayInfo.extendFactor : 1.0;
-        float abs_mul = (can_be_absolute() && absolute) ? displayInfo.absoluteFactor : 1.0;
+        float ext_mul = (can_extend_range() && extend_range) ? displayInfo.extendFactor : 1.f;
+        float abs_mul = (can_be_absolute() && absolute) ? displayInfo.absoluteFactor : 1.f;
         float factor = ext_mul * abs_mul;
         float res = nv / displayInfo.scale / factor;
         float minval = val_min.f;

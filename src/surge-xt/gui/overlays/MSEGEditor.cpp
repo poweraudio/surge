@@ -116,7 +116,10 @@ struct MSEGControlRegion : public juce::Component,
     std::unique_ptr<Surge::Widgets::Switch> hSnapButton, vSnapButton;
     std::unique_ptr<Surge::Widgets::MultiSwitch> loopMode, editMode, movementMode;
     std::unique_ptr<Surge::Widgets::NumberField> hSnapSize, vSnapSize;
+    std::unique_ptr<Surge::Overlays::TypeinLambdaEditor> typeinSnap;
     std::vector<std::unique_ptr<juce::Label>> labels;
+
+    void hvSnapTypein(bool isH);
 
     MSEGStorage *ms = nullptr;
     MSEGEditor::State *eds = nullptr;
@@ -3146,7 +3149,9 @@ int32_t MSEGControlRegion::controlModifierClicked(Surge::GUI::IComponentTagValue
         {
             contextMenu.addSeparator();
 
-            auto handleTypein = [pControl, this](const std::string &s) {
+            auto c = pControl->asJuceComponent();
+
+            auto handleTypein = [c, pControl, this](const std::string &s) {
                 auto i = std::atoi(s.c_str());
 
                 if (i >= 1 && i <= 100)
@@ -3154,11 +3159,9 @@ int32_t MSEGControlRegion::controlModifierClicked(Surge::GUI::IComponentTagValue
                     pControl->setValue(Parameter::intScaledToFloat(i, 100, 1));
                     valueChanged(pControl);
 
-                    auto iv = pControl->asJuceComponent();
-
-                    if (iv)
+                    if (c)
                     {
-                        iv->repaint();
+                        c->repaint();
                     }
 
                     return true;
@@ -3169,7 +3172,7 @@ int32_t MSEGControlRegion::controlModifierClicked(Surge::GUI::IComponentTagValue
             auto val =
                 std::to_string(Parameter::intUnscaledFromFloat(pControl->getValue(), 100, 1));
 
-            auto showTypein = [this, handleTypein, menuName, pControl, val]() {
+            auto showTypein = [this, c, handleTypein, menuName, pControl, val]() {
                 if (!typeinEditor)
                 {
                     typeinEditor =
@@ -3182,9 +3185,10 @@ int32_t MSEGControlRegion::controlModifierClicked(Surge::GUI::IComponentTagValue
                 typeinEditor->setValueLabels("current: " + val, "");
                 typeinEditor->setSkin(skin, associatedBitmapStore);
                 typeinEditor->setEditableText(val);
+                typeinEditor->setReturnFocusTarget(c);
 
-                auto topOfControl = pControl->asJuceComponent()->getParentComponent()->getY();
-                auto pb = pControl->asJuceComponent()->getBounds();
+                auto topOfControl = c->getParentComponent()->getY();
+                auto pb = c->getBounds();
                 auto cx = pb.getCentreX();
 
                 auto r = typeinEditor->getRequiredSize();
@@ -3204,6 +3208,53 @@ int32_t MSEGControlRegion::controlModifierClicked(Surge::GUI::IComponentTagValue
                                   Surge::GUI::makeEndHoverCallback(pControl));
     }
     return 1;
+}
+
+void MSEGControlRegion::hvSnapTypein(bool isH)
+{
+    // So gross that this is copied from the menu handler partly above, but different enough that I
+    // can't quite make it one thing. Ahh well. Will all get redone one day anyway
+    if (!typeinEditor)
+    {
+        typeinEditor = std::make_unique<TypeinLambdaEditor>([](auto c) { return false; });
+        getParentComponent()->addChildComponent(*typeinEditor);
+    }
+    typeinEditor->setReturnFocusTarget(isH ? hSnapSize.get() : vSnapSize.get());
+    typeinEditor->setSkin(skin, associatedBitmapStore);
+
+    typeinEditor->setMainLabel(std::string() + "MSEG " + (isH ? "Horizontal" : "Vertical") +
+                               " Snap Grid");
+    typeinEditor->setValueLabels(
+        "current: " + std::to_string(isH ? hSnapSize->getIntValue() : vSnapSize->getIntValue()),
+        "");
+    typeinEditor->setEditableText(
+        std::to_string(isH ? hSnapSize->getIntValue() : vSnapSize->getIntValue()));
+
+    auto c = isH ? hSnapSize.get() : vSnapSize.get();
+    auto topOfControl = c->getParentComponent()->getY();
+    auto pb = c->getBounds();
+    auto cx = pb.getCentreX();
+
+    auto r = typeinEditor->getRequiredSize();
+    cx -= r.getWidth() / 2;
+    r = r.withBottomY(topOfControl).withX(cx);
+    typeinEditor->setBounds(r);
+
+    typeinEditor->setVisible(true);
+    typeinEditor->grabKeyboardFocus();
+
+    typeinEditor->callback = [w = juce::Component::SafePointer(this), isH](auto s) {
+        auto sn = std::clamp(std::atoi(s.c_str()), 1, 32);
+        if (w)
+        {
+            w->typeinEditor->setVisible(false);
+            if (isH)
+                w->hSnapSize->setIntValue(sn);
+            else
+                w->vSnapSize->setIntValue(sn);
+        }
+        return true;
+    };
 }
 
 void MSEGControlRegion::rebuild()
@@ -3404,6 +3455,14 @@ void MSEGControlRegion::rebuild()
         hSnapSize->setHoverBackgroundDrawable(images[1]);
         hSnapSize->setTextColour(skin->getColor(Colors::MSEGEditor::NumberField::Text));
         hSnapSize->setHoverTextColour(skin->getColor(Colors::MSEGEditor::NumberField::TextHover));
+        hSnapSize->onReturnPressed = [w = juce::Component::SafePointer(this)](auto tag, auto nf) {
+            if (w)
+            {
+                w->hvSnapTypein(true);
+                return true;
+            }
+            return false;
+        };
         addAndMakeVisible(*hSnapSize);
 
         xpos += segWidth;
@@ -3438,6 +3497,14 @@ void MSEGControlRegion::rebuild()
         vSnapSize->setHoverBackgroundDrawable(images[1]);
         vSnapSize->setTextColour(skin->getColor(Colors::MSEGEditor::NumberField::Text));
         vSnapSize->setHoverTextColour(skin->getColor(Colors::MSEGEditor::NumberField::TextHover));
+        vSnapSize->onReturnPressed = [w = juce::Component::SafePointer(this)](auto tag, auto nf) {
+            if (w)
+            {
+                w->hvSnapTypein(false);
+                return true;
+            }
+            return false;
+        };
         addAndMakeVisible(*vSnapSize);
     }
 }

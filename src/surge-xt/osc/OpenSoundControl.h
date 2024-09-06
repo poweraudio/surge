@@ -72,8 +72,7 @@ class OpenSoundControl : public juce::OSCReceiver,
     void oscMessageReceived(const juce::OSCMessage &message) override;
     void oscBundleReceived(const juce::OSCBundle &bundle) override;
 
-    void send(std::string addr, std::string msg);
-    void send(std::string addr, float fval, std::string msg);
+    void send(juce::OSCMessage om, bool needsMessageThread);
     void sendAllParams();
     void sendAllModulators();
     void stopSending(bool updateOSCStartInStorage = true);
@@ -89,7 +88,7 @@ class OpenSoundControl : public juce::OSCReceiver,
     void modEndEdit(long ptag, modsources modsource, int modsourceScene, int index,
                     float depth01) override;
 
-    bool modOSCout(std::string addr, std::string oscName, float val, bool reportMute);
+    void modOSCout(std::string addr, std::string oscName, float val, bool reportMute);
 
   private:
     SurgeSynthesizer *synth{nullptr};
@@ -100,11 +99,16 @@ class OpenSoundControl : public juce::OSCReceiver,
     void sendError(std::string errorMsg);
     void sendNotFloatError(std::string addr, std::string msg);
     void sendDataCountError(std::string addr, std::string count);
-    float getNormValue(Parameter *p, float fval);
-    bool sendParameter(const Parameter *p);
-    bool sendMacro(long macnum);
-    bool sendModulator(ModulationRouting mod, int scene, bool global);
-    bool sendPath(std::string pathStr);
+    void sendMidiBoundsError(std::string addr);
+    void sendParameter(const Parameter *p, bool needsMessageThread, std::string extension = "");
+    void sendParameterExtOptions(const Parameter *p, bool needsMessageThread);
+    void sendAllParameterInfo(const Parameter *p, bool needsMessageThread);
+
+    void sendParameterDocs(const Parameter *p, bool needsMessageThread);
+    void sendParameterExtDocs(const Parameter *p, bool needsMessageThread);
+    void sendMacro(long macnum, bool needsMsgThread);
+    void sendModulator(ModulationRouting mod, int scene, bool global);
+    void sendPath(std::string pathStr);
 
     std::string getModulatorOSCAddr(int modid, int scene, int index, bool mute);
     void sendMod(long ptag, modsources modsource, int modsourceScene, int index, float val,
@@ -118,7 +122,12 @@ class OpenSoundControl : public juce::OSCReceiver,
 // Makes sure that decimal *points* are used, not commas
 inline std::string float_to_clocalestr_wprec(float value, int precision)
 {
-    return fmt::format(std::locale::classic(), "{:." + std::to_string(precision) + "Lf}", value);
+    /** c++20/fmt-10 fix this has to be a const expression */
+    assert(precision == 3);
+    return fmt::format(std::locale::classic(), "{:.3Lf}", value);
+    // return fmt::format(std::locale::classic(), "{:." + std::to_string(precision) + "Lf}", value);
+    // return fmt::format(std::locale::classic(), "{:.{}Lf}", value, precision); is I think the
+    // answer value);
 }
 
 } // namespace OSC

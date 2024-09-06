@@ -20,6 +20,7 @@
  * https://github.com/surge-synthesizer/surge
  */
 
+#include "melatonin_inspector/melatonin_inspector.h"
 #include "SurgeGUIEditor.h"
 #include "resource.h"
 
@@ -364,11 +365,6 @@ SurgeGUIEditor::SurgeGUIEditor(SurgeSynthEditor *jEd, SurgeSynthesizer *synth)
     Surge::GUI::setIsStandalone(juceEditor->processor.wrapperType ==
                                 juce::AudioProcessor::wrapperType_Standalone);
 
-    minimumZoom = 50;
-#if LINUX
-    minimumZoom = 100; // See github issue #628
-#endif
-
     currentSkin = Surge::GUI::SkinDB::get()->defaultSkin(&(this->synth->storage));
 
     // init the size of the plugin
@@ -455,6 +451,8 @@ SurgeGUIEditor::SurgeGUIEditor(SurgeSynthEditor *jEd, SurgeSynthesizer *synth)
     }
 
     juceEditor->processor.undoManager->resetEditor(this);
+
+    synth->storage.uiThreadChecksTunings = true;
 }
 
 SurgeGUIEditor::~SurgeGUIEditor()
@@ -467,6 +465,7 @@ SurgeGUIEditor::~SurgeGUIEditor()
     populateDawExtraState(synth); // If I must die, leave my state for future generations
     synth->storage.getPatch().dawExtraState.isPopulated = isPop;
     synth->storage.removeErrorListener(this);
+    synth->storage.uiThreadChecksTunings = false;
 }
 
 void SurgeGUIEditor::forceLFODisplayRebuild() { lfoDisplay->repaint(); }
@@ -564,32 +563,58 @@ void SurgeGUIEditor::idle()
 #ifndef SURGE_SKIP_ODDSOUND_MTS
     getStorage()->send_tuning_update();
 #endif
-
-    if (errorItemCount)
+    if (editor_open && frame && !synth->halt_engine)
     {
-        decltype(errorItems) cp;
+        bool patchChanged = false;
+
+        if (patchSelector)
         {
-            std::lock_guard<std::mutex> g(errorItemsMutex);
-            cp = errorItems;
-            errorItems.clear();
+            patchChanged = patchSelector->sel_id != synth->patchid;
+
+            if (synth->storage.getPatch().isDirty != patchSelector->isDirty)
+            {
+                patchSelector->isDirty = synth->storage.getPatch().isDirty;
+                patchSelector->repaint();
+            }
         }
 
-        for (const auto &[msg, title, code] : cp)
+        if (firstErrorIdleCountdown > 0)
         {
-            if (code == SurgeStorage::AUDIO_INPUT_LATENCY_WARNING)
+            firstErrorIdleCountdown--;
+        }
+        else if (queue_refresh || synth->refresh_editor || patchChanged)
+        {
+            // dont show an alert during a rebuild
+        }
+        else if (errorItemCount)
+        {
+            if (errorItemCount > 1 && alert && alert->isVisible())
             {
-                audioLatencyNotified = true;
-                frame->repaint();
+                // don't show the double error
             }
             else
             {
-                messageBox(title, msg);
+                decltype(errorItems)::value_type cp;
+                {
+                    std::lock_guard<std::mutex> g(errorItemsMutex);
+                    cp = errorItems.front();
+                    errorItems.pop_front();
+                    errorItemCount--;
+                }
+
+                auto &[msg, title, code] = cp;
+                if (code == SurgeStorage::AUDIO_INPUT_LATENCY_WARNING)
+                {
+                    audioLatencyNotified = true;
+                    frame->repaint();
+                }
+                else
+                {
+                    messageBox(title, msg);
+                }
             }
         }
-    }
 
-    if (editor_open && frame && !synth->halt_engine)
-    {
         if (lastObservedMidiNoteEventCount != synth->midiNoteEvents)
         {
             lastObservedMidiNoteEventCount = synth->midiNoteEvents;
@@ -778,19 +803,6 @@ void SurgeGUIEditor::idle()
             }
         }
 
-        bool patchChanged = false;
-
-        if (patchSelector)
-        {
-            patchChanged = patchSelector->sel_id != synth->patchid;
-
-            if (synth->storage.getPatch().isDirty != patchSelector->isDirty)
-            {
-                patchSelector->isDirty = synth->storage.getPatch().isDirty;
-                patchSelector->repaint();
-            }
-        }
-
         if (statusMPE)
         {
             auto v = statusMPE->getValue();
@@ -879,6 +891,7 @@ void SurgeGUIEditor::idle()
         {
             refreshOverlayWithOpenClose(MSEG_EDITOR);
             refreshOverlayWithOpenClose(FORMULA_EDITOR);
+            refreshOverlayWithOpenClose(WTSCRIPT_EDITOR);
             refreshOverlayWithOpenClose(TUNING_EDITOR);
             refreshOverlayWithOpenClose(MODULATION_EDITOR);
         }
@@ -1273,6 +1286,7 @@ void SurgeGUIEditor::idle()
         }
     }
 
+    juceEditor->fireListenersOnEndEdit = false;
     for (int s = 0; s < n_scenes; ++s)
     {
         for (int o = 0; o < n_oscs; ++o)
@@ -1305,6 +1319,7 @@ void SurgeGUIEditor::idle()
             juceEditor->endParameterEdit(&par);
         }
     }
+    juceEditor->fireListenersOnEndEdit = true;
 }
 
 void SurgeGUIEditor::toggle_mod_editing()
@@ -2021,6 +2036,7 @@ void SurgeGUIEditor::openOrRecreateEditor()
         case Surge::Skin::Connector::NonParameterConnection::SAVE_PATCH_DIALOG:
         case Surge::Skin::Connector::NonParameterConnection::MSEG_EDITOR_WINDOW:
         case Surge::Skin::Connector::NonParameterConnection::FORMULA_EDITOR_WINDOW:
+        case Surge::Skin::Connector::NonParameterConnection::WTSCRIPT_EDITOR_WINDOW:
         case Surge::Skin::Connector::NonParameterConnection::TUNING_EDITOR_WINDOW:
         case Surge::Skin::Connector::NonParameterConnection::MOD_LIST_WINDOW:
         case Surge::Skin::Connector::NonParameterConnection::FILTER_ANALYSIS_WINDOW:
@@ -2542,7 +2558,13 @@ void SurgeGUIEditor::controlBeginEdit(Surge::GUI::IComponentTagValue *control)
 
     if (ptag >= 0 && ptag < synth->storage.getPatch().param_ptr.size())
     {
-        if (mod_editor)
+        bool isModEdit = mod_editor;
+        if (isModEdit)
+        {
+            auto *pp = synth->storage.getPatch().param_ptr[ptag];
+            isModEdit = isModEdit && synth->isValidModulation(pp->id, modsource);
+        }
+        if (isModEdit)
         {
             auto mci = dynamic_cast<Surge::Widgets::ModulatableControlInterface *>(control);
             if (mci)
@@ -2585,7 +2607,13 @@ void SurgeGUIEditor::controlEndEdit(Surge::GUI::IComponentTagValue *control)
 
     if (ptag >= 0 && ptag < synth->storage.getPatch().param_ptr.size())
     {
-        if (mod_editor)
+        bool isModEdit = mod_editor;
+        if (isModEdit)
+        {
+            auto *pp = synth->storage.getPatch().param_ptr[ptag];
+            isModEdit = isModEdit && synth->isValidModulation(pp->id, modsource);
+        }
+        if (isModEdit)
         {
             auto mci = dynamic_cast<Surge::Widgets::ModulatableControlInterface *>(control);
             if (mci)
@@ -2980,20 +3008,24 @@ void SurgeGUIEditor::setZoomFactor(float zf) { setZoomFactor(zf, false); }
 
 void SurgeGUIEditor::setZoomFactor(float zf, bool resizeWindow)
 {
-    zoomFactor = std::max(zf, 25.f);
+    zoomFactor = std::max(zf, static_cast<float>(minimumZoom));
+
 #if LINUX
     if (zoomFactor == 150)
         zoomFactor = 149;
 #endif
 
     float zff = zoomFactor * 0.01;
+
     if (currentSkin && resizeWindow)
     {
         int yExtra = 0;
+
         if (getShowVirtualKeyboard())
         {
             yExtra = SurgeSynthEditor::extraYSpaceForVirtualKeyboard;
         }
+
         juceEditor->setSize(zff * currentSkin->getWindowSizeX(),
                             zff * (currentSkin->getWindowSizeY() + yExtra));
     }
@@ -3002,6 +3034,7 @@ void SurgeGUIEditor::setZoomFactor(float zf, bool resizeWindow)
     {
         frame->setTransform(juce::AffineTransform().scaled(zff));
     }
+
     setBitmapZoomFactor(zoomFactor);
     rezoomOverlays();
 }
@@ -3012,17 +3045,12 @@ void SurgeGUIEditor::setBitmapZoomFactor(float zf)
     {
         float dbs = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()->scale;
         int fullPhysicalZoomFactor = (int)(zf * dbs);
-        if (bitmapStore != nullptr)
-            bitmapStore->setPhysicalZoomFactor(fullPhysicalZoomFactor);
-    }
-}
 
-void SurgeGUIEditor::showMinimumZoomError() const
-{
-    std::ostringstream oss;
-    oss << "The smallest zoom level possible on your platform is " << minimumZoom
-        << "%. Sorry, you cannot make Surge XT any smaller!";
-    synth->storage.reportError(oss.str(), "Zoom Level Error");
+        if (bitmapStore != nullptr)
+        {
+            bitmapStore->setPhysicalZoomFactor(fullPhysicalZoomFactor);
+        }
+    }
 }
 
 void SurgeGUIEditor::showTooLargeZoomError(double width, double height, float zf) const
@@ -3431,6 +3459,21 @@ void SurgeGUIEditor::promptForUserValueEntry(Parameter *p, juce::Component *c, i
     typeinParamEditor->grabFocus();
 }
 
+bool SurgeGUIEditor::promptForUserValueEntry(uint32_t tag, juce::Component *c)
+{
+    auto t = tag - start_paramtags;
+
+    if (t < 0 || t >= n_total_params)
+    {
+        return false;
+    }
+
+    auto p = synth->storage.getPatch().param_ptr[t];
+
+    promptForUserValueEntry(p, c);
+    return true;
+}
+
 std::string SurgeGUIEditor::helpURLFor(Parameter *p)
 {
     auto storage = &(synth->storage);
@@ -3697,6 +3740,7 @@ void SurgeGUIEditor::alertBox(const std::string &title, const std::string &promp
     alert->setWindowTitle(title);
 
     addAndMakeVisibleWithTracking(frame.get(), *alert);
+
     alert->setLabel(prompt);
 
     switch (buttonStyle)
@@ -5111,12 +5155,12 @@ void SurgeGUIEditor::lfoShapeChanged(int prior, int curr)
         }
     }
 
+    bool hadExtendedEditor = false;
+    bool isTornOut = false;
+    juce::Point<int> tearOutPos;
+
     for (const auto &ov : {MSEG_EDITOR, FORMULA_EDITOR})
     {
-        bool hadExtendedEditor = false;
-        bool isTornOut = false;
-        juce::Point<int> tearOutPos;
-
         if (isAnyOverlayPresent(ov))
         {
             auto olw = getOverlayWrapperIfOpen(ov);
@@ -5131,21 +5175,17 @@ void SurgeGUIEditor::lfoShapeChanged(int prior, int curr)
 
             hadExtendedEditor = true;
         }
-
-        if (hadExtendedEditor)
+    }
+    if (hadExtendedEditor && (curr == lt_mseg || curr == lt_formula))
+    {
+        showOverlay(curr == lt_mseg ? MSEG_EDITOR : FORMULA_EDITOR);
+        if (isTornOut)
         {
-            if (curr == lt_mseg || curr == lt_formula)
-            {
-                showOverlay(ov);
-                if (isTornOut)
-                {
-                    auto olw = getOverlayWrapperIfOpen(ov);
+            auto olw = getOverlayWrapperIfOpen(curr == lt_mseg ? MSEG_EDITOR : FORMULA_EDITOR);
 
-                    if (olw)
-                    {
-                        olw->doTearOut(tearOutPos);
-                    }
-                }
+            if (olw)
+            {
+                olw->doTearOut(tearOutPos);
             }
         }
     }
@@ -6132,6 +6172,8 @@ void SurgeGUIEditor::populateDawExtraState(SurgeSynthesizer *synth)
 
     des->editor.activeOverlays.clear();
 
+    des->tuningApplicationMode = (int)synth->storage.getTuningApplicationMode();
+
     for (const auto &ol : juceOverlays)
     {
         auto olw = getOverlayWrapperIfOpen(ol.first);
@@ -6211,6 +6253,16 @@ void SurgeGUIEditor::loadFromDawExtraState(SurgeSynthesizer *synth)
         {
             showMSEGEditorOnNextIdleOrOpen = false;
             overlaysForNextIdle = des->editor.activeOverlays;
+        }
+
+        switch (des->tuningApplicationMode)
+        {
+        case 0:
+            synth->storage.setTuningApplicationMode(SurgeStorage::RETUNE_ALL);
+            break;
+        case 1:
+            synth->storage.setTuningApplicationMode(SurgeStorage::RETUNE_MIDI_ONLY);
+            break;
         }
     }
 }
@@ -6295,6 +6347,8 @@ void SurgeGUIEditor::resetComponentTracking()
         if (dynamic_cast<Surge::Overlays::TypeinParamEditor *>(comp))
             recurse = false;
         if (dynamic_cast<Surge::Overlays::MiniEdit *>(comp))
+            recurse = false;
+        if (dynamic_cast<Surge::Overlays::Alert *>(comp))
             recurse = false;
         if (dynamic_cast<Surge::Overlays::OverlayWrapper *>(comp))
             recurse = false;

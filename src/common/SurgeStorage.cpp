@@ -201,31 +201,73 @@ SurgeStorage::SurgeStorage(const SurgeStorage::SurgeStorageConfig &config) : oth
     }
 
     userDataPath = sst::plugininfra::paths::bestDocumentsFolderPathFor("Surge XT");
+
+    // These are how I test a broken windows install for documents
+    // userDataPath = fs::path{"/good/luck/bozo"};
+    // userDataPath = fs::path{"/usr/sbin"};
 #elif LINUX
+    const auto installPath = sst::plugininfra::paths::sharedLibraryBinaryPath().parent_path();
+
     if (!hasSuppliedDataPath)
     {
-        auto userlower = sst::plugininfra::paths::bestLibrarySharedFolderPathFor(sxtlower, true);
-        auto userreg = sst::plugininfra::paths::bestLibrarySharedFolderPathFor(sxt, true);
-        auto globallower = sst::plugininfra::paths::bestLibrarySharedFolderPathFor(sxtlower, false);
-        auto globalreg = sst::plugininfra::paths::bestLibrarySharedFolderPathFor(sxt, true);
-
         bool founddir{false};
-        for (const auto &p : {userreg, userlower, globalreg, globallower})
+
+        // First check the portable mode sitting beside me
+        auto cp{installPath};
+
+        while (datapath.empty() && cp.has_parent_path() && cp != cp.parent_path())
         {
-            if (fs::is_directory(p) && !founddir)
+            auto portable = cp / L"SurgeXTData";
+
+            if (fs::is_directory(portable))
             {
+                datapath = std::move(portable);
                 founddir = true;
-                datapath = p;
             }
+
+            cp = cp.parent_path();
         }
+
         if (!founddir)
-            datapath = globallower;
+        {
+            auto userlower =
+                sst::plugininfra::paths::bestLibrarySharedFolderPathFor(sxtlower, true);
+            auto userreg = sst::plugininfra::paths::bestLibrarySharedFolderPathFor(sxt, true);
+            auto globallower =
+                sst::plugininfra::paths::bestLibrarySharedFolderPathFor(sxtlower, false);
+            auto globalreg = sst::plugininfra::paths::bestLibrarySharedFolderPathFor(sxt, true);
+
+            for (const auto &p : {userreg, userlower, globalreg, globallower})
+            {
+                if (fs::is_directory(p) && !founddir)
+                {
+                    founddir = true;
+                    datapath = p;
+                }
+            }
+            if (!founddir)
+                datapath = globallower;
+        }
     }
     else
     {
         datapath = suppliedDataPath;
     }
 
+    // First check the portable mode sitting beside me
+    auto up{installPath};
+
+    while (userDataPath.empty() && up.has_parent_path() && up != up.parent_path())
+    {
+        auto portable = up / L"SurgeXTUserData";
+
+        if (fs::is_directory(portable))
+        {
+            userDataPath = std::move(portable);
+        }
+
+        up = up.parent_path();
+    }
     userDataPath = sst::plugininfra::paths::bestDocumentsFolderPathFor(sxt);
 
 #elif WINDOWS
@@ -280,9 +322,39 @@ SurgeStorage::SurgeStorage(const SurgeStorage::SurgeStorageConfig &config) : oth
 
     if (userDataPath.empty())
     {
-        userDataPath = sst::plugininfra::paths::bestDocumentsFolderPathFor(sxt);
+        try
+        {
+            userDataPath = sst::plugininfra::paths::bestDocumentsFolderPathFor(sxt);
+        }
+        catch (const std::runtime_error &e)
+        {
+            userDataPath = fs::path{"/documents/not/available"};
+            reportError(
+                std::string() + "Surge is unable to find the %DOCUMENTS% directory. " +
+                    "Your system is misconfigured and several features including saving patches, " +
+                    "the search database and preferences will not work. " + e.what(),
+                "Unable to determine %DOCUMENTS%");
+        }
     }
 #endif
+
+    try
+    {
+        userDataPathValid = false;
+        if (fs::is_directory(userDataPath))
+        {
+            userDataPathValid = true;
+            /*
+             * This code doesn't work because fs:: doesn't have a writable check and I don't
+             * want to create a file just to see in every startup path. We find out later
+             * anyway when we set up the directories.
+             */
+        }
+    }
+    catch (const fs::filesystem_error &e)
+    {
+        userDataPathValid = false;
+    }
 
     userDefaultFilePath = userDataPath;
 
@@ -550,7 +622,7 @@ void SurgeStorage::createUserDirectory()
 {
     auto p = userDataPath;
     auto needToBuild = false;
-    if (!fs::is_directory(p))
+    if (!fs::is_directory(p) || !fs::is_directory(userPatchesPath))
     {
         needToBuild = true;
     }
@@ -564,6 +636,7 @@ void SurgeStorage::createUserDirectory()
                             userSkinsPath, userMidiMappingsPath})
                 fs::create_directories(s);
 
+            userDataPathValid = true;
 #if HAS_JUCE
             auto rd = std::string(SurgeSharedBinary::README_UserArea_txt,
                                   SurgeSharedBinary::README_UserArea_txtSize) +
@@ -576,20 +649,26 @@ void SurgeStorage::createUserDirectory()
         }
         catch (const fs::filesystem_error &e)
         {
-            reportError(e.what(), "Unable to set up User Directory");
+            reportError(std::string() + "User directory is non-writable. " + e.what(),
+                        "Unable to set up User Directory.");
+            userDataPathValid = false;
         }
     }
 
-    // Special case - MIDI Program Changes came later
-    if (!fs::exists(userPatchesMidiProgramChangePath))
+    if (userDataPathValid)
     {
-        try
+        // Special case - MIDI Program Changes came later
+        if (!fs::exists(userPatchesMidiProgramChangePath))
         {
-            fs::create_directories(userPatchesMidiProgramChangePath);
-        }
-        catch (const fs::filesystem_error &e)
-        {
-            reportError(e.what(), "Unable to set up User Directory");
+            try
+            {
+                fs::create_directories(userPatchesMidiProgramChangePath);
+            }
+            catch (const fs::filesystem_error &e)
+            {
+                reportError(e.what(), "Unable to set up User Directory");
+                userDataPathValid = false;
+            }
         }
     }
 }
@@ -597,6 +676,9 @@ void SurgeStorage::createUserDirectory()
 void SurgeStorage::initializePatchDb(bool force)
 {
     if (patchDBInitialized && !force)
+        return;
+
+    if (!userDataPathValid)
         return;
 
     patchDBInitialized = true;
@@ -750,10 +832,22 @@ void SurgeStorage::refresh_patchlist()
     }
     for (auto &p : patch_list)
     {
-        auto qtime = fs::last_write_time(p.path);
-        p.lastModTime =
-            std::chrono::duration_cast<std::chrono::seconds>(qtime.time_since_epoch()).count();
-
+        try
+        {
+            auto qtime = fs::last_write_time(p.path);
+            p.lastModTime =
+                std::chrono::duration_cast<std::chrono::seconds>(qtime.time_since_epoch()).count();
+        }
+        catch (const fs::filesystem_error &e)
+        {
+            std::ostringstream erross;
+            erross << "Unable to determine the modification time of '" << p.path.u8string() << ". "
+                   << "This usually means the file can't be opened, or is a broken symlink, or "
+                      "some such. Underlying error: "
+                   << e.what();
+            reportError(erross.str(), "Unable to Read File Time");
+            p.lastModTime = 0;
+        }
         auto ps = p.path.u8string();
         auto pf = pathToTrunc(ps);
 
@@ -1461,6 +1555,35 @@ int SurgeStorage::getAdjacentWaveTable(int id, bool direction) const
 
         return wtOrdering[order];
     }
+}
+
+std::string SurgeStorage::getCurrentWavetableName(OscillatorStorage *oscdata)
+{
+    waveTableDataMutex.lock();
+
+    std::string wttxt;
+    int wtid = oscdata->wt.current_id;
+
+    if (!oscdata->wavetable_display_name.empty())
+    {
+        wttxt = oscdata->wavetable_display_name;
+    }
+    else if ((wtid >= 0) && (wtid < wt_list.size()))
+    {
+        wttxt = wt_list.at(wtid).name;
+    }
+    else if (oscdata->wt.flags & wtf_is_sample)
+    {
+        wttxt = "(Patch Sample)";
+    }
+    else
+    {
+        wttxt = "(Patch Wavetable)";
+    }
+
+    waveTableDataMutex.unlock();
+
+    return wttxt;
 }
 
 void SurgeStorage::clipboard_copy(int type, int scene, int entry, modsources ms)
@@ -2530,7 +2653,18 @@ bool SurgeStorage::resetToCurrentScaleAndMapping()
         table_note_omega[1][i] =
             (float)cos(2 * M_PI * min(0.5, 440 * table_pitch[i] * dsamplerate_os_inv));
     }
+
+#ifndef SURGE_SKIP_ODDSOUND_MTS
+    if (oddsound_mts_active_as_main && !uiThreadChecksTunings)
+    {
+        for (int i = 0; i < 128; ++i)
+        {
+            MTS_SetNoteTuning(currentTuning.frequencyForMidiNote(i), i);
+        }
+        MTS_SetScaleName(currentTuning.scale.description.c_str());
+    }
     tuningUpdates++;
+#endif
     return true;
 }
 
@@ -2573,6 +2707,11 @@ void SurgeStorage::setTuningApplicationMode(const TuningApplicationMode m)
     {
         tuningApplicationMode = RETUNE_MIDI_ONLY;
     }
+}
+
+SurgeStorage::TuningApplicationMode SurgeStorage::getTuningApplicationMode() const
+{
+    return tuningApplicationMode;
 }
 
 bool SurgeStorage::skipLoadWtAndPatch = false;
@@ -2826,6 +2965,15 @@ void SurgeStorage::connect_as_oddsound_main()
                     "MTS-ESP Source Initialization Error");
     }
     lastSentTuningUpdate = -1;
+
+    if (!uiThreadChecksTunings && oddsound_mts_active_as_main)
+    {
+        for (int i = 0; i < 128; ++i)
+        {
+            MTS_SetNoteTuning(currentTuning.frequencyForMidiNote(i), i);
+        }
+        MTS_SetScaleName(currentTuning.scale.description.c_str());
+    }
 }
 void SurgeStorage::disconnect_as_oddsound_main()
 {
@@ -2904,7 +3052,9 @@ void SurgeStorage::reportError(const std::string &msg, const std::string &title,
     }
 
     for (auto l : errorListeners)
+    {
         l->onSurgeError(msg, title, errorType);
+    }
 }
 
 float SurgeStorage::remapKeyInMidiOnlyMode(float res)

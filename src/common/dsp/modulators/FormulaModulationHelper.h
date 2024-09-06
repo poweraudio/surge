@@ -44,6 +44,7 @@ struct GlobalData
 };
 
 static constexpr int max_formula_outputs{max_lfo_indices};
+static constexpr const char *sharedTableName{"shared"};
 
 struct EvaluatorState
 {
@@ -64,12 +65,19 @@ struct EvaluatorState
 
     bool retrigger_AEG, retrigger_FEG;
 
+    bool is_display = false;
+
     // voice features
     bool isVoice;
-    int key{60}, channel{0}, velocity{0};
+    int key{60}, channel{0}, velocity{0}, releasevelocity{0}, mpebendrange{24};
+    int64_t voiceOrderAtCreate{1L};
+    float polyat{0}, mpebend{0}, mpetimbre{0}, mpepressure{0};
 
-    // patch features
+    // scene features
+    int polylimit{1}, scenemode{0}, polymode{0}, splitpoint{0};
     float macrovalues[n_customcontrollers];
+    float pitchbend, pbrange_up, pbrange_dn, aftertouch, modwheel, breath, expression, sustain,
+        lowest_key, highest_key, latest_key;
 
     std::unique_ptr<std::string> error;
     bool raisedError = false;
@@ -96,7 +104,7 @@ void removeFunctionsAssociatedWith(SurgeStorage *,
 bool prepareForEvaluation(SurgeStorage *storage, FormulaModulatorStorage *fs, EvaluatorState &s,
                           bool is_display);
 
-void setupEvaluatorStateFrom(EvaluatorState &s, const SurgePatch &p);
+void setupEvaluatorStateFrom(EvaluatorState &s, const SurgePatch &patch, int sceneIndex);
 void setupEvaluatorStateFrom(EvaluatorState &s, const SurgeVoice *v);
 
 void valueAt(int phaseIntPart, float phaseFracPart, SurgeStorage *, FormulaModulatorStorage *fs,
