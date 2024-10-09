@@ -29,25 +29,28 @@ option(SURGE_USE_SYSTEM_LUA "Use system Lua instead of LuaJIT" ${LUAJIT_UNSUPPOR
 
 if(NOT SURGE_SKIP_LUA)
   if(SURGE_USE_SYSTEM_LUA)
-    set(OLD_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES})
-    if(".a" IN_LIST CMAKE_FIND_LIBRARY_SUFFIXES)
-      # Statically link Lua if possible.
-      list(PREPEND CMAKE_FIND_LIBRARY_SUFFIXES .a)
-    endif()
-    find_package(Lua51)
-    set(CMAKE_FIND_LIBRARY_SUFFIXES ${OLD_FIND_LIBRARY_SUFFIXES})
-
-    if(LUA_MATH_LIBRARY AND LUA_MATH_LIBRARY IN_LIST LUA_LIBRARIES)
-      # libm must be dynamically linked.
-      list(REMOVE_ITEM LUA_LIBRARIES ${LUA_MATH_LIBRARY})
-      find_library(SHARED_MATH_LIBRARY m)
-      list(APPEND LUA_LIBRARIES ${SHARED_MATH_LIBRARY})
+    if(NOT DEFINED LUA_LIBRARIES)
+      find_package(Lua51 REQUIRED)
+      if(".a" IN_LIST CMAKE_FIND_LIBRARY_SUFFIXES AND NOT LUA_LIBRARY MATCHES "\\.a$")
+        # Statically link Lua if possible.
+        unset(LUA_LIBRARY CACHE)
+        unset(LUA_LIBRARIES CACHE)
+        list(PREPEND CMAKE_FIND_LIBRARY_SUFFIXES .a)
+        find_package(Lua51 REQUIRED)
+        list(POP_FRONT CMAKE_FIND_LIBRARY_SUFFIXES)
+      endif()
     endif()
 
     add_library(luajit-5.1 INTERFACE)
     target_include_directories(luajit-5.1 INTERFACE ${LUA_INCLUDE_DIR})
     target_link_libraries(luajit-5.1 INTERFACE ${LUA_LIBRARIES})
     target_compile_definitions(luajit-5.1 INTERFACE HAS_LUAJIT=0)
+
+    foreach(lib ${LUA_LIBRARIES})
+      if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND lib MATCHES "[^/]+\\.a$")
+        target_link_options(luajit-5.1 INTERFACE LINKER:--exclude-libs,${CMAKE_MATCH_0})
+      endif()
+    endforeach()
   else()
     surge_add_lib_subdirectory(luajitlib)
     target_compile_definitions(luajit-5.1 INTERFACE HAS_LUAJIT=1)
