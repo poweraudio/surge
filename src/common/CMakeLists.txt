@@ -19,7 +19,7 @@ surge_add_lib_subdirectory(tuning-library)
 surge_add_lib_subdirectory(sqlite-3.23.3)
 
 if(${CMAKE_SYSTEM_PROCESSOR} MATCHES "^ppc")
-  # PowerPC/Power processors aren't supported by LuaJIT.
+  # PowerPC/Power ISA processors aren't supported by LuaJIT.
   set(LUAJIT_UNSUPPORTED_ARCH TRUE)
 else()
   set(LUAJIT_UNSUPPORTED_ARCH FALSE)
@@ -29,7 +29,21 @@ option(SURGE_USE_SYSTEM_LUA "Use system Lua instead of LuaJIT" ${LUAJIT_UNSUPPOR
 
 if(NOT SURGE_SKIP_LUA)
   if(SURGE_USE_SYSTEM_LUA)
+    set(OLD_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES})
+    if(".a" IN_LIST CMAKE_FIND_LIBRARY_SUFFIXES)
+      # Statically link Lua if possible.
+      list(PREPEND CMAKE_FIND_LIBRARY_SUFFIXES .a)
+    endif()
     find_package(Lua51)
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ${OLD_FIND_LIBRARY_SUFFIXES})
+
+    if(LUA_MATH_LIBRARY AND LUA_MATH_LIBRARY IN_LIST LUA_LIBRARIES)
+      # libm must be dynamically linked.
+      list(REMOVE_ITEM LUA_LIBRARIES ${LUA_MATH_LIBRARY})
+      find_library(SHARED_MATH_LIBRARY m)
+      list(APPEND LUA_LIBRARIES ${SHARED_MATH_LIBRARY})
+    endif()
+
     add_library(luajit-5.1 INTERFACE)
     target_include_directories(luajit-5.1 INTERFACE ${LUA_INCLUDE_DIR})
     target_link_libraries(luajit-5.1 INTERFACE ${LUA_LIBRARIES})
