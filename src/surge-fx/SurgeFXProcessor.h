@@ -26,7 +26,7 @@
 #include "SurgeStorage.h"
 #include "Effect.h"
 #include "FXOpenSoundControl.h"
-
+#include <atomic>
 #include "sst/filters/HalfRateFilter.h"
 
 #include "juce_audio_processors/juce_audio_processors.h"
@@ -97,7 +97,7 @@ class SurgefxAudioProcessor : public juce::AudioProcessor,
     bool initOSCIn(int port);
     bool changeOSCInPort(int newport);
     void initOSCError(int port, std::string outIP = "");
-    bool oscReceiving = false;
+    std::atomic<bool> oscReceiving{false};
 
     //==============================================================================
     const juce::String getName() const override;
@@ -106,6 +106,7 @@ class SurgefxAudioProcessor : public juce::AudioProcessor,
     bool producesMidi() const override;
     bool isMidiEffect() const override;
     double getTailLengthSeconds() const override;
+    void reset() override;
 
     //==============================================================================
     int getNumPrograms() override;
@@ -120,6 +121,10 @@ class SurgefxAudioProcessor : public juce::AudioProcessor,
 
     int getEffectType() { return effectNum; }
     float getFXStorageValue01(int i) { return fxstorage->p[fx_param_remap[i]].get_value_f01(); }
+    float getFXStorageDefaultValue01(int i)
+    {
+        return fxstorage->p[fx_param_remap[i]].get_default_value_f01();
+    }
     float getFXParamValue01(int i) { return *(fxParams[i]); }
     void setFXParamValue01(int i, float f) { *(fxParams[i]) = f; }
 

@@ -49,6 +49,9 @@ class alignas(16) Oscillator
                                float FMdepth = 0.f)
     {
     }
+
+    virtual void processSamplesForDisplay(float *samples, int size, bool real){};
+
     virtual void assign_fm(float *master_osc) { this->master_osc = master_osc; }
     virtual bool allow_display() { return true; }
     inline double pitch_to_omega(float x)
@@ -94,7 +97,7 @@ class AbstractBlitOscillator : public Oscillator
     float oscbuffer alignas(16)[OB_LENGTH + FIRipol_N];
     float oscbufferR alignas(16)[OB_LENGTH + FIRipol_N];
     float dcbuffer alignas(16)[OB_LENGTH + FIRipol_N];
-    __m128 osc_out, osc_out2, osc_outR, osc_out2R;
+    SIMD_M128 osc_out, osc_out2, osc_outR, osc_out2R;
     void prepare_unison(int voices);
     float integrator_hpf;
     float pitchmult, pitchmult_inv;

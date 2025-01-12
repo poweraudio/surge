@@ -62,11 +62,14 @@ else()
   target_compile_definitions(luajit-5.1 INTERFACE HAS_LUA=0 HAS_LUAJIT=0)
 endif()
 
+set(SST_BASIC_BLOCKS_SIMD_OMIT_NATIVE_ALIASES ON CACHE BOOL "No Native Aliases for SCXT") # Makes ARM64EC use neon basically
 surge_add_lib_subdirectory(sst/sst-basic-blocks)
 surge_add_lib_subdirectory(sst/sst-cpputils)
 surge_add_lib_subdirectory(sst/sst-plugininfra)
 surge_add_lib_subdirectory(sst/sst-filters)
 surge_add_lib_subdirectory(sst/sst-waveshapers)
+
+target_compile_definitions(sst-waveshapers INTERFACE SURGE_XT_1X_WST=1)
 surge_add_lib_subdirectory(sst/sst-effects)
 
 set(PEGTL_BUILD_TESTS OFF CACHE BOOL "")
@@ -74,6 +77,7 @@ set(PEGTL_BUILD_EXAMPLES OFF CACHE BOOL "")
 surge_add_lib_subdirectory(PEGTL)
 
 if(NOT SURGE_SKIP_JUCE_FOR_RACK)
+  surge_add_lib_subdirectory(sst/sst-jucegui)
   juce_add_binary_data(surge-common-binary
     NAMESPACE SurgeSharedBinary
     HEADER_NAME SurgeSharedBinary.h
@@ -95,20 +99,29 @@ else()
   add_library(surge-common-binary INTERFACE)
   target_compile_definitions(surge-common-binary INTERFACE HAS_JUCE=0 SKIP_JUCE=1)
 
-  add_library(juce_dsp_rack_sub STATIC
-    ${SURGE_JUCE_PATH}/modules/juce_audio_basics/juce_audio_basics.cpp
-    ${SURGE_JUCE_PATH}/modules/juce_dsp/juce_dsp.cpp
-  )
+  if (APPLE)
+    add_library(juce_dsp_rack_sub STATIC
+      ${SURGE_JUCE_PATH}/modules/juce_audio_basics/juce_audio_basics.mm
+      ${SURGE_JUCE_PATH}/modules/juce_dsp/juce_dsp.cpp
+    )
+  else()
+    add_library(juce_dsp_rack_sub STATIC
+      ${SURGE_JUCE_PATH}/modules/juce_audio_basics/juce_audio_basics.cpp
+      ${SURGE_JUCE_PATH}/modules/juce_dsp/juce_dsp.cpp
+    )
+  endif()
 
   if(APPLE)
     target_sources(juce_dsp_rack_sub PRIVATE
       ${SURGE_JUCE_PATH}/modules/juce_core/juce_core.mm
       ${SURGE_JUCE_PATH}/modules/juce_audio_formats/juce_audio_formats.mm
+      ${SURGE_JUCE_PATH}/modules/juce_core/juce_core_CompilationTime.cpp
     )
   else()
     target_sources(juce_dsp_rack_sub PRIVATE
       ${SURGE_JUCE_PATH}/modules/juce_core/juce_core.cpp
       ${SURGE_JUCE_PATH}/modules/juce_audio_formats/juce_audio_formats.cpp
+      ${SURGE_JUCE_PATH}/modules/juce_core/juce_core_CompilationTime.cpp
     )
   endif()
 
@@ -197,6 +210,8 @@ add_library(${PROJECT_NAME}
   dsp/effects/DistortionEffect.h
   dsp/effects/FlangerEffect.cpp
   dsp/effects/FlangerEffect.h
+  dsp/effects/FloatyDelayEffect.cpp
+  dsp/effects/FloatyDelayEffect.h
   dsp/effects/FrequencyShifterEffect.cpp
   dsp/effects/FrequencyShifterEffect.h
   dsp/effects/GraphicEQ11BandEffect.cpp
@@ -368,6 +383,10 @@ elseif(WIN32)
     UNICODE
     _UNICODE
   )
+
+  message(STATUS "Adding simde interface library on windows")
+  target_link_libraries(${PROJECT_NAME} PUBLIC surge::simde)
+
 endif()
 
 option(SURGE_RELIABLE_VERSION_INFO "Update version info on every build (off: generate only at configuration time)" ON)

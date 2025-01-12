@@ -45,10 +45,10 @@ struct FontManager
 
     bool useOSLato{false};
 
-    juce::Font displayFont;
-    juce::Font patchNameFont;
-    juce::Font lfoTypeFont;
-    juce::Font aboutFont;
+    juce::Font displayFont{juce::FontOptions()};
+    juce::Font patchNameFont{juce::FontOptions()};
+    juce::Font lfoTypeFont{juce::FontOptions()};
+    juce::Font aboutFont{juce::FontOptions()};
     void setupFontMembers();
 
     juce::ReferenceCountedObjectPtr<juce::Typeface> latoRegularTypeface, latoBoldTypeface,
@@ -66,4 +66,11 @@ struct FontManager
 } // namespace GUI
 } // namespace Surge
 
+#if JUCE_VERSION >= 0x080002
+#define SST_STRING_WIDTH_INT(a, b) juce::GlyphArrangement::getStringWidthInt(a, b)
+#define SST_STRING_WIDTH_FLOAT(a, b) juce::GlyphArrangement::getStringWidth(a, b)
+#else
+#define SST_STRING_WIDTH_INT(a, b) a.getStringWidth(b)
+#define SST_STRING_WIDTH_FLOAT(a, b) a.getStringWidthFloat(b)
+#endif
 #endif // SURGE_SRC_SURGE_XT_GUI_RUNTIMEFONT_H

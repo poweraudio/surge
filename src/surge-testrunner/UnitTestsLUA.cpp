@@ -169,8 +169,8 @@ TEST_CASE("Surge Prelude", "[lua]")
         auto pcall = lua_pcall(L, 0, 1, 0);
         if (pcall != 0)
         {
-            std::cout << "Lua Error[" << pcall << "] " << lua_tostring(L, -1) << std::endl;
-            INFO("Lua Error " << pcall << " " << lua_tostring(L, -1));
+            std::cout << "Lua error [" << pcall << "] " << lua_tostring(L, -1) << std::endl;
+            INFO("Lua error " << pcall << " " << lua_tostring(L, -1));
         }
 
         REQUIRE(lua_isnumber(L, -1));
@@ -318,7 +318,7 @@ end
         REQUIRE(!res);
         REQUIRE(lua_gettop(L) == 1);
         REQUIRE(lua_isnil(L, -1));
-        REQUIRE(err == "Lua Syntax Error: [string \"lua-script\"]:7: 'end' expected (to close "
+        REQUIRE(err == "Lua syntax error: [string \"lua-script\"]:7: 'end' expected (to close "
                        "'function' at line 2) near '<eof>'");
         lua_pop(L, 1);
         lua_close(L);
@@ -341,7 +341,7 @@ error("I will parse but will not run")
         REQUIRE(lua_gettop(L) == 1);
         REQUIRE(lua_isnil(L, -1));
         REQUIRE(err ==
-                "Lua Evaluation Error: [string \"lua-script\"]:3: I will parse but will not run");
+                "Lua evaluation error: [string \"lua-script\"]:3: I will parse but will not run");
         lua_pop(L, 1);
         lua_close(L);
     }
@@ -448,7 +448,7 @@ std::vector<formulaObservation> runFormula(SurgeStorage *storage, FormulaModulat
 
         float r[Surge::Formula::max_formula_outputs];
         Surge::Formula::valueAt(iphase, phase, storage, fs, &es, r);
-        res.push_back(formulaObservation(iphase, phase, r[0]));
+        res.emplace_back(formulaObservation(iphase, phase, r[0]));
         for (int i = 0; i < Surge::Formula::max_formula_outputs; ++i)
             res.back().vVec[i] = r[i];
 
@@ -665,24 +665,42 @@ TEST_CASE("Wavetable Script", "[formula]")
     {
         SurgeStorage storage;
         const std::string s = R"FN(
-function generate(config)
-    res = config.xs
-    for i,x in ipairs(config.xs) do
-        res[i] = math.sin(2 * math.pi * x * config.n)
+
+function init(wt)
+    -- wt will have frame_count and sample_count defined
+    wt.name = "Fourier Saw"
+    wt.phase = math.linspace(0.0, 1.0, wt.sample_count)
+    return wt
+end
+
+function generate(wt)
+    local res = {}
+
+    for i,x in ipairs(wt.phase) do
+        local lv = 0
+        lv = sin(2 * pi * wt.frame * x)
+        res[i] = lv
     end
     return res
 end
         )FN";
+        auto la = std::make_unique<Surge::WavetableScript::LuaWTEvaluator>();
+        la->setResolution(512);
+        la->setStorage(nullptr);
+        la->setFrameCount(4);
+        la->setScript(s);
+
         for (int fno = 0; fno < 4; ++fno)
         {
-            auto fr = Surge::WavetableScript::evaluateScriptAtFrame(nullptr, s, 512, fno, 4);
-            REQUIRE(fr.size() == 512);
+            auto fr = la->getFrame(fno);
+            REQUIRE(fr.has_value());
+            REQUIRE(fr->size() == 512);
             auto dp = 1.0 / (512 - 1);
             for (int i = 0; i < 512; ++i)
             {
                 auto x = i * dp;
                 auto r = sin(2 * M_PI * x * (fno + 1));
-                REQUIRE(r == Approx(fr[i]));
+                REQUIRE(r == Approx((*fr)[i]));
             }
         }
     }

@@ -20,11 +20,14 @@
  * https://github.com/surge-synthesizer/surge
  */
 
-#include <iostream>
-
 #include <juce_core/juce_core.h>
 #include <juce_events/juce_events.h>
 #include <juce_audio_devices/juce_audio_devices.h>
+#if defined(_M_ARM64EC)
+#include <juce_gui_extra/juce_gui_extra.h>
+#endif
+
+#include <iostream>
 #include <CLI11/CLI11.hpp>
 
 #include "version.h"
@@ -314,6 +317,13 @@ int main(int argc, char **argv)
                  "Do not assume stdin and do not poll keyboard for quit or ctrl-d. Useful for "
                  "daemon modes.");
 
+    bool mpeEnable{false};
+    app.add_flag("--mpe-enable", mpeEnable, "Enable MPE mode on this instance of Surge XT CLI");
+
+    int mpeBendRange{0};
+    app.add_flag("--mpe-pitch-bend-range", mpeBendRange,
+                 "MPE Pitch Bend Range in semitones; 0 for default");
+
     CLI11_PARSE(app, argc, argv);
 
     if (listDevices)
@@ -340,6 +350,22 @@ int main(int argc, char **argv)
         {
             LOG(BASIC, "Failed to load patch:" << initPatch << "!");
         }
+    }
+
+    if (mpeEnable)
+    {
+        LOG(BASIC, "MPE Status          : Enabled");
+        engine->proc->surge->mpeEnabled = true;
+
+        if (mpeBendRange > 0)
+        {
+            LOG(BASIC, "MPE Bend Range      : " << mpeBendRange);
+            engine->proc->surge->storage.mpePitchBendRange = mpeBendRange;
+        }
+    }
+    else
+    {
+        engine->proc->surge->mpeEnabled = false; // the default
     }
 
     auto midiDevices = juce::MidiInput::getAvailableDevices();

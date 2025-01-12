@@ -262,6 +262,7 @@ bool Parameter::can_temposync() const
     case ct_envtime_linkable_delay:
     case ct_envtime_lfodecay:
     case ct_reverbpredelaytime:
+    case ct_floaty_delay_time:
         return true;
     }
     return false;
@@ -299,6 +300,7 @@ bool Parameter::can_extend_range() const
     case ct_percent_oscdrift:
     case ct_twist_aux_mix:
     case ct_countedset_percent_extendable:
+    case ct_countedset_percent_extendable_wtdeform:
     case ct_dly_fb_clippingmodes:
     case ct_bonsai_bass_boost:
     case ct_detuning:
@@ -378,6 +380,7 @@ bool Parameter::has_deformoptions() const
     case ct_envtime_deformable:
     case ct_filter_feedback:
     case ct_osc_feedback_negative:
+    case ct_countedset_percent_extendable_wtdeform:
         return true;
     default:
         break;
@@ -426,6 +429,7 @@ bool Parameter::is_bipolar() const
     case ct_pitch4oct:
     case ct_modern_trimix:
     case ct_oscspread_bipolar:
+    case ct_floaty_delay_playrate:
     case ct_bonsai_bass_boost:
         res = true;
         break;
@@ -527,6 +531,7 @@ void Parameter::set_user_data(ParamUserData *ud)
     {
     case ct_countedset_percent:
     case ct_countedset_percent_extendable:
+    case ct_countedset_percent_extendable_wtdeform:
         if (dynamic_cast<CountedSetUserData *>(ud))
         {
             user_data = ud;
@@ -789,6 +794,18 @@ void Parameter::set_type(int ctrltype)
         val_min.f = -8;
         val_max.f = 5;
         val_default.f = 0;
+        break;
+    case ct_floaty_warp_time:
+        valtype = vt_float;
+        val_min.f = -3;
+        val_max.f = 4;
+        val_default.f = 0;
+        break;
+    case ct_floaty_delay_time:
+        valtype = vt_float;
+        val_min.f = -5.64386;     // 20ms
+        val_max.f = 3;            // 8s
+        val_default.f = -1.73697; // 300ms
         break;
     case ct_delaymodtime:
     case ct_chorusmodtime:
@@ -1123,6 +1140,7 @@ void Parameter::set_type(int ctrltype)
         break;
     case ct_countedset_percent:
     case ct_countedset_percent_extendable:
+    case ct_countedset_percent_extendable_wtdeform:
         val_min.f = 0;
         val_max.f = 1;
         valtype = vt_float;
@@ -1160,11 +1178,18 @@ void Parameter::set_type(int ctrltype)
         break;
     case ct_ensemble_stages:
     {
+#if defined(_M_ARM64EC)
+        valtype = vt_int;
+        val_min.i = 0;
+        val_max.i = 1;
+        val_default.i = 0;
+#else
         extern int ensemble_stage_count();
         valtype = vt_int;
         val_min.i = 0;
         val_max.i = ensemble_stage_count() - 1;
         val_default.i = 0;
+#endif
         break;
     }
     case ct_stringosc_excitation_model:
@@ -1358,6 +1383,13 @@ void Parameter::set_type(int ctrltype)
         val_max.i = 1;
         break;
 
+    case ct_floaty_delay_playrate:
+        valtype = vt_float;
+        val_min.f = -5.f;
+        val_default.f = 1.f;
+        val_max.f = 5.f;
+        break;
+
     case ct_none:
     default:
         snprintf(dispname, NAMECHARS, "-");
@@ -1398,10 +1430,14 @@ void Parameter::set_type(int ctrltype)
     case ct_rotarydrive:
     case ct_countedset_percent:
     case ct_countedset_percent_extendable:
+    case ct_countedset_percent_extendable_wtdeform:
     case ct_lfoamplitude:
     case ct_lfophaseshuffle:
     case ct_reson_res_extendable:
     case ct_modern_trimix:
+    case ct_floaty_warp_time:
+    case ct_floaty_delay_time:
+    case ct_floaty_delay_playrate:
     case ct_alias_mask:
     case ct_tape_drive:
         displayType = LinearWithScale;
@@ -1933,6 +1969,7 @@ void Parameter::bound_value(bool force_integer)
         }
         case ct_countedset_percent:
         case ct_countedset_percent_extendable:
+        case ct_countedset_percent_extendable_wtdeform:
         {
             CountedSetUserData *cs = reinterpret_cast<CountedSetUserData *>(user_data);
             if (cs)
@@ -2402,13 +2439,7 @@ void Parameter::get_display_of_modulation_depth(char *txt, float modulationDepth
 {
 #define ITXT_SIZE 1024
 
-    int detailedMode = false;
-
-    if (storage)
-    {
-        detailedMode =
-            Surge::Storage::getUserDefaultValue(storage, Surge::Storage::HighPrecisionReadouts, 0);
-    }
+    const bool detailedMode = Surge::Storage::getValueDispPrecision(storage);
 
     if (basicBlocksParamMetaData.has_value() && basicBlocksParamMetaData->supportsStringConversion)
     {
@@ -3249,8 +3280,7 @@ void Parameter::get_display_alt(char *txt, bool external, float ef) const
         }
     }
 
-    int detailedMode =
-        Surge::Storage::getUserDefaultValue(storage, Surge::Storage::HighPrecisionReadouts, 0);
+    const bool detailedMode = Surge::Storage::getValueDispPrecision(storage);
 
     txt[0] = 0;
     switch (ctrltype)
@@ -3343,6 +3373,7 @@ void Parameter::get_display_alt(char *txt, bool external, float ef) const
     }
     case ct_countedset_percent:
     case ct_countedset_percent_extendable:
+    case ct_countedset_percent_extendable_wtdeform:
         if (user_data != nullptr)
         {
             // We check when set so the reinterpret cast is safe and fast
@@ -3416,13 +3447,7 @@ std::string Parameter::get_display(bool external, float ef) const
     float f;
     bool b;
 
-    int detailedMode = 0;
-
-    if (storage)
-    {
-        detailedMode =
-            Surge::Storage::getUserDefaultValue(storage, Surge::Storage::HighPrecisionReadouts, 0);
-    }
+    const bool detailedMode = Surge::Storage::getValueDispPrecision(storage);
 
     if (basicBlocksParamMetaData.has_value() && basicBlocksParamMetaData->supportsStringConversion)
     {
@@ -3553,7 +3578,7 @@ std::string Parameter::get_display(bool external, float ef) const
                 {
                     dval *= 1000.f;
                     u = "ms";
-                    dec = detailedMode ? 2 : 1;
+                    dec = detailedMode ? 3 : 1;
                 }
             }
 
@@ -3936,8 +3961,13 @@ std::string Parameter::get_display(bool external, float ef) const
             txt = fmt::format("{:d} bands", i);
             break;
         case ct_distortion_waveshape:
-            txt = sst::waveshapers::wst_names[(int)FXWaveShapers[i]];
-            break;
+        {
+            if (i < 0 || i >= FXWaveShapers.size())
+                txt = "ERROR " + std::to_string(i);
+            else
+                txt = sst::waveshapers::wst_names[(int)FXWaveShapers[i]];
+        }
+        break;
         case ct_mscodec:
             switch (i)
             {
@@ -4033,8 +4063,12 @@ std::string Parameter::get_display(bool external, float ef) const
         break;
         case ct_ensemble_stages:
         {
+#if defined(_M_ARM64EC)
+            txt = "name";
+#else
             extern std::string ensemble_stage_name(int);
             txt = ensemble_stage_name(i);
+#endif
         }
         break;
         case ct_reson_mode:
@@ -4430,6 +4464,7 @@ bool Parameter::can_setvalue_from_string() const
     case ct_oscspread_bipolar:
     case ct_countedset_percent:
     case ct_countedset_percent_extendable:
+    case ct_countedset_percent_extendable_wtdeform:
     case ct_flangerpitch:
     case ct_flangervoices:
     case ct_flangerspacing:
@@ -4462,6 +4497,9 @@ bool Parameter::can_setvalue_from_string() const
     case ct_tape_speed:
     case ct_spring_decay:
     case ct_bonsai_bass_boost:
+    case ct_floaty_warp_time:
+    case ct_floaty_delay_time:
+    case ct_floaty_delay_playrate:
     {
         return true;
     }
@@ -4634,7 +4672,7 @@ bool Parameter::set_value_from_string_onto(const std::string &s, pdata &ontoThis
         }
         case ct_pbdepth:
         {
-            if (extend_range && s.find("/") != std::string::npos)
+            if (extend_range && s.find('/') != std::string::npos)
             {
                 if (!supports_tuning_value_from_string(s, errMsg))
                     return false;
@@ -4767,7 +4805,7 @@ bool Parameter::set_value_from_string_onto(const std::string &s, pdata &ontoThis
         if (displayInfo.customFeatures & ParamDisplayFeatures::kAllowsTuningFractionTypein)
         {
             // Check for a fraction
-            if (s.find("/") != std::string::npos)
+            if (s.find('/') != std::string::npos)
             {
                 if (!supports_tuning_value_from_string(s, errMsg))
                     return false;
@@ -4970,7 +5008,7 @@ bool Parameter::set_value_from_string_onto(const std::string &s, pdata &ontoThis
             // OK so do we contain a /?
             const char *slp;
 
-            if ((slp = strstr(strip, "/")) != nullptr)
+            if ((slp = strchr(strip, '/')) != nullptr)
             {
                 float num = std::atof(strip);
                 float den = std::atof(slp + 1);
@@ -5074,7 +5112,7 @@ float Parameter::calculate_modulation_value_from_string(const std::string &s, st
         if (displayInfo.customFeatures & ParamDisplayFeatures::kAllowsTuningFractionTypein)
         {
             // Check for a fraction
-            if (s.find("/") != std::string::npos)
+            if (s.find('/') != std::string::npos)
             {
                 if (!supports_tuning_value_from_string(s, errMsg))
                     return false;
@@ -5389,7 +5427,7 @@ float Parameter::calculate_modulation_value_from_string(const std::string &s, st
             // OK so do we contain a /?
             const char *slp;
 
-            if ((slp = strstr(strip, "/")) != nullptr)
+            if ((slp = strchr(strip, '/')) != nullptr)
             {
                 float num = std::atof(strip);
                 float den = std::atof(slp + 1);

@@ -20,7 +20,10 @@
  * https://github.com/surge-synthesizer/surge
  */
 
+#if SURGE_INCLUDE_MELATONIN_INSPECTOR
 #include "melatonin_inspector/melatonin_inspector.h"
+#endif
+
 #include "SurgeGUIEditor.h"
 #include "SurgeGUIEditorTags.h"
 #include "SurgeGUIUtils.h"
@@ -1137,14 +1140,13 @@ juce::PopupMenu SurgeGUIEditor::makeValueDisplaysMenu(const juce::Point<int> &wh
 {
     auto dispDefMenu = juce::PopupMenu();
 
-    bool precReadout = Surge::Storage::getUserDefaultValue(
-        &(this->synth->storage), Surge::Storage::HighPrecisionReadouts, false);
+    const bool detailedMode = Surge::Storage::getValueDispPrecision(&(this->synth->storage));
 
-    dispDefMenu.addItem(Surge::GUI::toOSCase("High Precision Value Readouts"), true, precReadout,
-                        [this, precReadout]() {
+    dispDefMenu.addItem(Surge::GUI::toOSCase("High Precision Value Readouts"), true, detailedMode,
+                        [this, detailedMode]() {
                             Surge::Storage::updateUserDefaultValue(
                                 &(this->synth->storage), Surge::Storage::HighPrecisionReadouts,
-                                !precReadout);
+                                !detailedMode);
                         });
 
     // modulation value readout shows bounds
@@ -1821,6 +1823,7 @@ juce::PopupMenu SurgeGUIEditor::makeDevMenu(const juce::Point<int> &where)
     devSubMenu.addItem(Surge::GUI::toOSCase("Dump Undo/Redo Stack to stdout"), true, false,
                        [this]() { undoManager()->dumpStack(); });
 
+#if SURGE_INCLUDE_MELATONIN_INSPECTOR
     if (melatoninInspector)
     {
         devSubMenu.addItem("Close Melatonin Inspector", [this]() {
@@ -1840,6 +1843,7 @@ juce::PopupMenu SurgeGUIEditor::makeDevMenu(const juce::Point<int> &where)
             melatoninInspector->setVisible(true);
         });
     }
+#endif
 
 #ifdef INSTRUMENT_UI
     devSubMenu.addItem(Surge::GUI::toOSCase("Show UI Instrumentation..."),

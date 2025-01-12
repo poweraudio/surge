@@ -63,6 +63,9 @@ LFOAndStepDisplay::LFOAndStepDisplay(SurgeGUIEditor *e)
     setAccessible(true);
     setFocusContainerType(juce::Component::FocusContainerType::focusContainer);
 
+    backingImage = std::make_unique<juce::Image>(juce::Image::PixelFormat::ARGB, 50, 50, true);
+    waveformIsUpdated = true;
+
     typeLayer = std::make_unique<OverlayAsAccessibleContainer>("LFO Type");
     addAndMakeVisible(*typeLayer);
     for (int i = 0; i < n_lfo_types; ++i)
@@ -414,10 +417,97 @@ void LFOAndStepDisplay::paint(juce::Graphics &g)
     }
     else
     {
-        paintWaveform(g);
+
+        if (!paramsHasChanged())
+        {
+            g.drawImage(*backingImage, getLocalBounds().toFloat(),
+                        juce::RectanglePlacement::fillDestination);
+            paintTypeSelector(g);
+            return;
+        }
+        else
+        {
+            juce::Colour color =
+                juce::Colour((unsigned char)0, (unsigned char)0, (unsigned char)0, 0.f);
+
+            backingImage->clear(backingImage->getBounds());
+        }
+
+        juce::Graphics gr = juce::Graphics(*backingImage);
+        float zoomFloat = (float)zoomFactor / 100.f;
+
+        gr.addTransform(juce::AffineTransform().scale(zoomFloat * 2.f));
+
+        paintWaveform(gr);
+
+        g.drawImage(*backingImage, getLocalBounds().toFloat(),
+                    juce::RectanglePlacement::fillDestination);
+        waveformIsUpdated = false;
     }
 
     paintTypeSelector(g);
+}
+
+bool LFOAndStepDisplay::paramsHasChanged()
+{
+    bool hasChanged = false;
+
+    auto *p = &lfodata->rate;      // look in the definition of LFOStorage for which param is first
+    while (p <= &lfodata->release) // and last
+    {
+
+        if (paramsFromLastDrawCall[p->param_id_in_scene].i != p->val.i)
+            hasChanged = true;
+
+        paramsFromLastDrawCall[p->param_id_in_scene].i = p->val.i;
+        ++p;
+    };
+
+    if (lfodata->rate.deactivated != settingsFromLastDrawCall[0].b)
+    {
+        settingsFromLastDrawCall[0].b = lfodata->rate.deactivated;
+        hasChanged = true;
+    }
+
+    if (lfodata->deform.deform_type != paramsFromLastDrawCall[1].i)
+    {
+        paramsFromLastDrawCall[1].i = lfodata->deform.deform_type;
+        hasChanged = true;
+    }
+
+    if (lfodata->rate.temposync != paramsFromLastDrawCall[2].b)
+    {
+        paramsFromLastDrawCall[2].b = lfodata->rate.temposync;
+        hasChanged = true;
+    }
+
+    if (lfoStorageFromLastDrawingCall != lfodata)
+        hasChanged = true;
+
+    if (forceRepaint)
+    {
+        hasChanged = true;
+        forceRepaint = false;
+    }
+
+    lfoStorageFromLastDrawingCall = lfodata;
+
+    return hasChanged;
+}
+
+void LFOAndStepDisplay::setZoomFactor(int zoom)
+{
+
+    if (zoomFactor != zoom)
+    {
+        float zoomFloat = (float)zoom / 100.f;
+        forceRepaint = true;
+        backingImage = std::make_unique<juce::Image>(juce::Image::PixelFormat::ARGB,
+                                                     outer.getWidth() * zoomFloat * 2,
+                                                     outer.getHeight() * zoomFloat * 2, true);
+    }
+
+    zoomFactor = zoom;
 }
 
 void LFOAndStepDisplay::paintWaveform(juce::Graphics &g)
@@ -1335,11 +1425,9 @@ void LFOAndStepDisplay::paintStepSeq(juce::Graphics &g)
 
     auto q = boxo;
 
-    auto tf = juce::AffineTransform()
-                  .scaled(boxo.getWidth() / valScale, boxo.getHeight() / valScale)
-                  .translated(q.getTopLeft().x, q.getTopLeft().y);
-
-    auto tfpath = tf;
+    const auto tfpath = juce::AffineTransform()
+                            .scaled(boxo.getWidth() / valScale, boxo.getHeight() / valScale)
+                            .translated(q.getTopLeft().x, q.getTopLeft().y);
 
     g.setColour(skin->getColor(Colors::LFO::StepSeq::Envelope));
 
@@ -1373,24 +1461,13 @@ void LFOAndStepDisplay::paintStepSeq(juce::Graphics &g)
     // Finally draw the drag label
     if (dragMode == VALUES && draggedStep >= 0 && draggedStep < n_stepseqsteps)
     {
-        int prec = 2;
-
-        if (storage)
-        {
-            int detailedMode = Surge::Storage::getUserDefaultValue(
-                storage, Surge::Storage::HighPrecisionReadouts, 0);
-
-            if (detailedMode)
-            {
-                prec = 6;
-            }
-        }
+        const bool detailedMode = Surge::Storage::getValueDispPrecision(storage);
 
         g.setFont(skin->fontManager->lfoTypeFont);
 
-        std::string txt = fmt::format("{:.{}f} %", ss->steps[draggedStep] * 100.f, prec);
+        std::string txt = fmt::format("{:.{}f} %", ss->steps[draggedStep] * 100.f, detailedMode);
 
-        int sw = g.getCurrentFont().getStringWidth(txt);
+        int sw = SST_STRING_WIDTH_INT(g.getCurrentFont(), txt);
 
         auto sr = steprect[draggedStep];
 
@@ -1658,6 +1735,7 @@ void LFOAndStepDisplay::onSkinChanged()
     {
         return;
     }
+    forceRepaint = true;
     auto typesWithHover = skin->standardHoverAndHoverOnForIDB(IDB_LFO_TYPE, associatedBitmapStore);
     typeImg = typesWithHover[0];
     typeImgHover = typesWithHover[1];
@@ -2442,7 +2520,7 @@ void LFOAndStepDisplay::updateShapeTo(int i)
 
         sge->refresh_mod();
         sge->broadcastPluginAutomationChangeFor(&(lfodata->shape));
-
+        forceRepaint = true;
         repaint();
 
         sge->lfoShapeChanged(prior, i);
@@ -2583,15 +2661,10 @@ void LFOAndStepDisplay::showStepRMB(int i)
 
     contextMenu.addSeparator();
 
-    int decimals = 2;
+    const bool detailedMode = Surge::Storage::getValueDispPrecision(storage);
 
-    if (storage)
-    {
-        decimals = 2 + (4 * Surge::Storage::getUserDefaultValue(
-                                storage, Surge::Storage::HighPrecisionReadouts, 0));
-    }
-
-    auto msg = fmt::format("Edit Step {}: {:.{}f} %", i + 1, ss->steps[i] * 100.f, decimals);
+    auto msg =
+        fmt::format("Edit Step {} Value: {:.{}f} %", i + 1, ss->steps[i] * 100.f, detailedMode);
 
     contextMenu.addItem(Surge::GUI::toOSCase(msg), true, false, [this, i]() { showStepTypein(i); });
 
@@ -2600,16 +2673,10 @@ void LFOAndStepDisplay::showStepRMB(int i)
 
 void LFOAndStepDisplay::showStepTypein(int i)
 {
-    int decimals = 2;
-
-    if (storage)
-    {
-        decimals = 2 + (4 * Surge::Storage::getUserDefaultValue(
-                                storage, Surge::Storage::HighPrecisionReadouts, 0));
-    }
+    const bool detailedMode = Surge::Storage::getValueDispPrecision(storage);
 
     auto handleTypein = [this, i](const std::string &s) {
-        auto divPos = s.find("/");
+        auto divPos = s.find('/');
         float v = 0.f;
 
         if (divPos != std::string::npos)
@@ -2645,11 +2712,11 @@ void LFOAndStepDisplay::showStepTypein(int i)
     }
 
     stepEditor->callback = handleTypein;
-    stepEditor->setMainLabel("Edit Step " + std::to_string(i + 1));
-    stepEditor->setValueLabels(fmt::format("current: {:.{}f} %", ss->steps[i] * 100.f, decimals),
-                               "");
+    stepEditor->setMainLabel(fmt::format("Edit Step {} Value", std::to_string(i + 1)));
+    stepEditor->setValueLabels(
+        fmt::format("current: {:.{}f} %", ss->steps[i] * 100.f, detailedMode), "");
     stepEditor->setSkin(skin, associatedBitmapStore);
-    stepEditor->setEditableText(fmt::format("{:.{}f} %", ss->steps[i] * 100.f, decimals));
+    stepEditor->setEditableText(fmt::format("{:.{}f} %", ss->steps[i] * 100.f, detailedMode));
     stepEditor->setReturnFocusTarget(stepSliderOverlays[i].get());
 
     auto topOfControl = getY();

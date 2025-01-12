@@ -20,6 +20,8 @@
  * https://github.com/surge-synthesizer/surge
  */
 
+#include <juce_gui_basics/juce_gui_basics.h>
+#include <juce_gui_extra/juce_gui_extra.h>
 #include "KeyBindingsOverlay.h"
 #include <SurgeJUCELookAndFeel.h>
 #include "widgets/MenuCustomComponents.h"
@@ -75,7 +77,7 @@ struct KeyBindingsListRow : public juce::Component
         std::string desc = "";
         keyDesc = std::make_unique<juce::Label>("Key Binding", desc);
         keyDesc->setAccessible(true);
-        keyDesc->setFont(juce::Font(10));
+        keyDesc->setFont(juce::Font(juce::FontOptions(10)));
         addAndMakeVisible(*keyDesc);
 
         reset = std::make_unique<Surge::Widgets::SelfDrawButton>("Reset");

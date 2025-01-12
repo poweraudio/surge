@@ -50,12 +50,12 @@ enum lag_entries
     le_pfg,
 };
 
-inline void set1f(__m128 &m, int i, float f) { *((float *)&m + i) = f; }
+inline void set1f(SIMD_M128 &m, int i, float f) { *((float *)&m + i) = f; }
 
-inline void set1i(__m128 &m, int e, int i) { *((int *)&m + e) = i; }
-inline void set1ui(__m128 &m, int e, unsigned int i) { *((unsigned int *)&m + e) = i; }
+inline void set1i(SIMD_M128 &m, int e, int i) { *((int *)&m + e) = i; }
+inline void set1ui(SIMD_M128 &m, int e, unsigned int i) { *((unsigned int *)&m + e) = i; }
 
-inline float get1f(__m128 m, int i) { return *((float *)&m + i); }
+inline float get1f(SIMD_M128 m, int i) { return *((float *)&m + i); }
 
 float SurgeVoiceState::getPitch(SurgeStorage *storage)
 {
@@ -149,9 +149,9 @@ SurgeVoice::SurgeVoice()
 #endif
 }
 
-SurgeVoice::SurgeVoice(SurgeStorage *storage, SurgeSceneStorage *oscene, pdata *params, int key,
-                       int velocity, int channel, int scene_id, float detune,
-                       MidiKeyState *keyState, MidiChannelState *mainChannelState,
+SurgeVoice::SurgeVoice(SurgeStorage *storage, SurgeSceneStorage *oscene, pdata *params,
+                       pdata *paramsUnmod, int key, int velocity, int channel, int scene_id,
+                       float detune, MidiKeyState *keyState, MidiChannelState *mainChannelState,
                        MidiChannelState *voiceChannelState, bool mpeEnabled, int64_t voiceOrder,
                        int32_t host_nid, int16_t host_key, int16_t host_chan, float aegStart,
                        float fegStart)
@@ -165,6 +165,7 @@ SurgeVoice::SurgeVoice(SurgeStorage *storage, SurgeSceneStorage *oscene, pdata *
     this->storage = storage;
     this->scene = oscene;
     this->paramptr = params;
+    this->paramptrUnmod = paramsUnmod;
     this->mpeEnabled = mpeEnabled;
     this->host_note_id = host_nid;
     this->originating_host_key = host_key;
@@ -527,7 +528,7 @@ void SurgeVoice::switch_toggled()
         {
             bool nzid = scene->drift.extend_range;
             osc[i] = spawn_osc(scene->osc[i].type.val.i, storage, &scene->osc[i], localcopy,
-                               oscbuffer[i]);
+                               this->paramptrUnmod, oscbuffer[i]);
             if (osc[i])
             {
                 // this matches the override in ::process_block
@@ -1261,8 +1262,8 @@ bool SurgeVoice::process_block(QuadFilterChainState &Q, int Qe)
 
     for (int i = 0; i < BLOCK_SIZE_OS; i++)
     {
-        _mm_store_ss(((float *)&Q.DL[i] + Qe), _mm_load_ss(&output[0][i]));
-        _mm_store_ss(((float *)&Q.DR[i] + Qe), _mm_load_ss(&output[1][i]));
+        SIMD_MM(store_ss)(((float *)&Q.DL[i] + Qe), SIMD_MM(load_ss)(&output[0][i]));
+        SIMD_MM(store_ss)(((float *)&Q.DR[i] + Qe), SIMD_MM(load_ss)(&output[1][i]));
     }
     SetQFB(&Q, Qe);
 
