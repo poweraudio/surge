@@ -2,7 +2,7 @@
 cmake_minimum_required(VERSION 3.15)
 cmake_policy(SET CMP0091 NEW)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(CMAKE_OSX_DEPLOYMENT_TARGET 10.9 CACHE STRING "Minimum macOS version")
+set(CMAKE_OSX_DEPLOYMENT_TARGET 10.13 CACHE STRING "Minimum macOS version")
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -24,6 +24,11 @@ message(STATUS "Compiler version is ${CMAKE_CXX_COMPILER_VERSION}")
 math(EXPR SURGE_BITNESS "${CMAKE_SIZEOF_VOID_P} * 8" OUTPUT_FORMAT DECIMAL)
 message(STATUS "Targeting ${SURGE_BITNESS}-bit configuration")
 # }}}
+
+if (APPLE)
+        enable_language(OBJC)
+        enable_language(OBJCXX)
+endif()
 
 # Make Sure the REpo is properly cloned {{{
 set(SURGE_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
@@ -155,8 +160,13 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
 endif()
 
 if(MSVC)
+  if (("${CMAKE_GENERATOR_PLATFORM}" STREQUAL "arm64ec") OR ("${CMAKE_GENERATOR_PLATFORM}" STREQUAL "arm64"))
+    message(STATUS "Skipping warning as error (-WX) on arm64ec for now")
+  else()
+    add_compile_options(-WX)
+  endif()
+
   add_compile_options(
-    -WX       # treat all warnings as errors
 
     # MSVC-only warnings, Clang-cl silently ignores these
     /wd4244   # float to double
@@ -166,6 +176,7 @@ if(MSVC)
     /wd4388   # signed unsigned mismatch in comparison
     /wd4065   # standalone default in a switch with no case
     /wd4702   # unreachable code. I generally do if( a ) return foo else return bar; return nullptr so don't warn on that
+    /wd4005   # macro redefinition. Thanks NOMINMAX
 
     # Clang-cl-only warnings
     $<$<CXX_COMPILER_ID:Clang>:-Wno-microsoft-exception-spec>

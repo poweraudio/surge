@@ -20,7 +20,10 @@
  * https://github.com/surge-synthesizer/surge
  */
 
+#if SURGE_INCLUDE_MELATONIN_INSPECTOR
 #include "melatonin_inspector/melatonin_inspector.h"
+#endif
+
 #include "SurgeGUIEditor.h"
 #include "resource.h"
 
@@ -771,23 +774,24 @@ void SurgeGUIEditor::idle()
         }
 
         auto ol = getOverlayIfOpenAs<Surge::Overlays::FormulaModulatorEditor>(FORMULA_EDITOR);
+
         if (ol)
         {
             ol->updateDebuggerIfNeeded();
         }
 
-        if (synth->storage.getPatch()
-                .scene[current_scene]
-                .osc[current_osc[current_scene]]
-                .wt.refresh_display)
+        auto wt =
+            &synth->storage.getPatch().scene[current_scene].osc[current_osc[current_scene]].wt;
+        if (wt->refresh_display)
         {
-            synth->storage.getPatch()
-                .scene[current_scene]
-                .osc[current_osc[current_scene]]
-                .wt.refresh_display = false;
+            wt->refresh_display = false;
 
             if (oscWaveform)
             {
+                if (wt->is_dnd_imported)
+                {
+                    oscWaveform->repaintForceForWT();
+                }
                 oscWaveform->repaint();
             }
         }
@@ -796,9 +800,9 @@ void SurgeGUIEditor::idle()
         {
             int prior = polydisp->getPlayingVoiceCount();
 
-            if (prior != synth->polydisplay)
+            if (prior != synth->storage.activeVoiceCount)
             {
-                polydisp->setPlayingVoiceCount(synth->polydisplay);
+                polydisp->setPlayingVoiceCount(synth->storage.activeVoiceCount);
                 polydisp->repaint();
             }
         }
@@ -891,7 +895,7 @@ void SurgeGUIEditor::idle()
         {
             refreshOverlayWithOpenClose(MSEG_EDITOR);
             refreshOverlayWithOpenClose(FORMULA_EDITOR);
-            refreshOverlayWithOpenClose(WTSCRIPT_EDITOR);
+            refreshOverlayWithOpenClose(WT_EDITOR);
             refreshOverlayWithOpenClose(TUNING_EDITOR);
             refreshOverlayWithOpenClose(MODULATION_EDITOR);
         }
@@ -2036,7 +2040,7 @@ void SurgeGUIEditor::openOrRecreateEditor()
         case Surge::Skin::Connector::NonParameterConnection::SAVE_PATCH_DIALOG:
         case Surge::Skin::Connector::NonParameterConnection::MSEG_EDITOR_WINDOW:
         case Surge::Skin::Connector::NonParameterConnection::FORMULA_EDITOR_WINDOW:
-        case Surge::Skin::Connector::NonParameterConnection::WTSCRIPT_EDITOR_WINDOW:
+        case Surge::Skin::Connector::NonParameterConnection::WT_EDITOR_WINDOW:
         case Surge::Skin::Connector::NonParameterConnection::TUNING_EDITOR_WINDOW:
         case Surge::Skin::Connector::NonParameterConnection::MOD_LIST_WINDOW:
         case Surge::Skin::Connector::NonParameterConnection::FILTER_ANALYSIS_WINDOW:
@@ -3004,10 +3008,22 @@ void SurgeGUIEditor::moveTopLeftTo(float tx, float ty)
 
 void SurgeGUIEditor::resizeWindow(float zf) { setZoomFactor(zf, true); }
 
+/*
+   Called when compiling the lua code from formula editor.
+   It is called before the draw call.
+*/
+
+void SurgeGUIEditor::forceLfoDisplayRepaint()
+{
+    if (lfoDisplay)
+        lfoDisplay->forceRepaint = true;
+}
+
 void SurgeGUIEditor::setZoomFactor(float zf) { setZoomFactor(zf, false); }
 
 void SurgeGUIEditor::setZoomFactor(float zf, bool resizeWindow)
 {
+
     zoomFactor = std::max(zf, static_cast<float>(minimumZoom));
 
 #if LINUX
@@ -3034,6 +3050,12 @@ void SurgeGUIEditor::setZoomFactor(float zf, bool resizeWindow)
     {
         frame->setTransform(juce::AffineTransform().scaled(zff));
     }
+
+    if (oscWaveform)
+        oscWaveform->setZoomFactor(zoomFactor);
+
+    if (lfoDisplay)
+        lfoDisplay->setZoomFactor(zoomFactor);
 
     setBitmapZoomFactor(zoomFactor);
     rezoomOverlays();
@@ -3413,8 +3435,7 @@ void SurgeGUIEditor::promptForUserValueEntry(Parameter *p, juce::Component *c, i
     }
     else
     {
-        int detailedMode = Surge::Storage::getUserDefaultValue(
-            &(this->synth->storage), Surge::Storage::HighPrecisionReadouts, 0);
+        const bool detailedMode = Surge::Storage::getValueDispPrecision(&(this->synth->storage));
         auto cms = ((ControllerModulationSource *)synth->storage.getPatch()
                         .scene[current_scene]
                         .modsources[ms]);
@@ -4205,7 +4226,8 @@ SurgeGUIEditor::layoutComponentForSkin(std::shared_ptr<Surge::GUI::Skin::Control
         {
             if (currentSkin->typeFaces.find(ff) != currentSkin->typeFaces.end())
             {
-                hs->setFont(juce::Font(currentSkin->typeFaces[ff]).withPointHeight(fs));
+                hs->setFont(
+                    juce::Font(juce::FontOptions(currentSkin->typeFaces[ff])).withPointHeight(fs));
                 hs->setFontSize(fs);
             }
         }
@@ -5472,6 +5494,9 @@ void SurgeGUIEditor::setupKeymapManager()
     keyMapManager->addBinding(Surge::GUI::SHOW_KEYBINDINGS_EDITOR,
                               {keymap_t::Modifiers::ALT, (int)'B'});
     keyMapManager->addBinding(Surge::GUI::SHOW_LFO_EDITOR, {keymap_t::Modifiers::ALT, (int)'E'});
+#if INCLUDE_WT_SCRIPTING_EDITOR
+    keyMapManager->addBinding(Surge::GUI::SHOW_WT_EDITOR, {keymap_t::Modifiers::ALT, (int)'W'});
+#endif
     keyMapManager->addBinding(Surge::GUI::SHOW_MODLIST, {keymap_t::Modifiers::ALT, (int)'M'});
     keyMapManager->addBinding(Surge::GUI::SHOW_TUNING_EDITOR, {keymap_t::Modifiers::ALT, (int)'T'});
     keyMapManager->addBinding(Surge::GUI::TOGGLE_OSCILLOSCOPE,
@@ -5578,12 +5603,41 @@ bool SurgeGUIEditor::keyPressed(const juce::KeyPress &key, juce::Component *orig
             switch (action)
             {
             case Surge::GUI::UNDO:
-                undoManager()->undo();
-                return true;
-            case Surge::GUI::REDO:
-                undoManager()->redo();
-                return true;
+            {
+#if INCLUDE_WT_SCRIPTING_EDITOR
+                auto ol = getOverlayIfOpenAs<Surge::Overlays::WavetableScriptEditor>(WT_EDITOR);
 
+                if (ol)
+                {
+                    ol->mainDocument->undo();
+                }
+                else
+                {
+                    undoManager()->undo();
+                }
+#else
+                undoManager()->undo();
+#endif
+                return true;
+            }
+            case Surge::GUI::REDO:
+            {
+#if INCLUDE_WT_SCRIPTING_EDITOR
+                auto ol = getOverlayIfOpenAs<Surge::Overlays::WavetableScriptEditor>(WT_EDITOR);
+
+                if (ol)
+                {
+                    ol->mainDocument->redo();
+                }
+                else
+                {
+                    undoManager()->redo();
+                }
+#else
+                undoManager()->redo();
+#endif
+                return true;
+            }
             case Surge::GUI::SAVE_PATCH:
                 showOverlay(SurgeGUIEditor::SAVE_PATCH);
                 return true;
@@ -5689,6 +5743,12 @@ bool SurgeGUIEditor::keyPressed(const juce::KeyPress &key, juce::Component *orig
                 }
 
                 return true;
+#if INCLUDE_WT_SCRIPTING_EDITOR
+            case Surge::GUI::SHOW_WT_EDITOR:
+                toggleOverlay(SurgeGUIEditor::WT_EDITOR);
+                frame->repaint();
+                return true;
+#endif
             case Surge::GUI::SHOW_MODLIST:
                 toggleOverlay(SurgeGUIEditor::MODULATION_EDITOR);
                 frame->repaint();

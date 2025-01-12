@@ -171,6 +171,11 @@ void AboutScreen::populateData()
     std::string platform = "macOS";
 #elif WINDOWS
     std::string platform = "Windows";
+#if defined(_M_ARM64EC)
+    platform += " (arm64ec)";
+#elif defined(_M_ARM64)
+    platform += " (arm64)";
+#endif
 #elif LINUX
     std::string platform = "Linux";
 #else
@@ -302,7 +307,7 @@ void AboutScreen::resized()
                 lb->setColour(juce::Label::textColourId, skin->getColor(Colors::AboutPage::Link));
                 lb->setText(std::get<1>(l), juce::NotificationType::dontSendNotification);
 
-                auto strw = font.getStringWidth(std::get<1>(l)) + 8;
+                auto strw = SST_STRING_WIDTH_INT(font, std::get<1>(l)) + 8;
                 lb->setBounds(margin + colW, h0, strw, lHeight);
 
                 addAndMakeVisible(*lb);
@@ -344,7 +349,7 @@ void AboutScreen::resized()
                 lb->setColour(juce::Label::textColourId, skin->getColor(Colors::AboutPage::Link));
                 lb->setText(std::get<1>(l), juce::NotificationType::dontSendNotification);
 
-                auto strw = font.getStringWidth(std::get<1>(l)) + 8;
+                auto strw = SST_STRING_WIDTH_INT(font, std::get<1>(l)) + 8;
                 lb->setBounds(rightSide + colW, h1, strw, lHeight);
 
                 addAndMakeVisible(*lb);

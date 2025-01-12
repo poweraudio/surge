@@ -136,10 +136,11 @@ const int FIRoffsetI16 = FIRipolI16_N >> 1;
 //                               added deform option for Release parameter of Filter/Amp EG, which only produces an open gate for the release stage
 // 23 -> 24 (XT 1.3.3 nightlies) added actually functioning extend mode to FM2 oscillator's M1/2 Offset parameter
 //                                     (old patches load with extend disabled even if they had it enabled)
-// 24 -> 25 (XT 1.3.4 nightlies) added storing of Wavetable Script Editor window state
+// 24 -> 25 (XT 1.3.4 nightlies) added storing of Wavetable Editor window state
+// 25 -> 26 (XT 1.4.* nightlies) added WT Deform for new WT features
 // clang-format on
 
-const int ff_revision = 25;
+const int ff_revision = 26;
 
 const int n_scene_params = 273;
 const int n_global_params = 11 + n_fx_slots * (n_fx_params + 1); // each param plus a type
@@ -415,6 +416,7 @@ enum fx_type
     fxt_spring_reverb,
     fxt_bonsai,
     fxt_audio_input,
+    fxt_floaty_delay,
 
     n_fx_types,
 };
@@ -448,19 +450,21 @@ const char fx_type_names[n_fx_types][32] = {"Off",
                                             "Mid-Side Tool",
                                             "Spring Reverb",
                                             "Bonsai",
-                                            "Audio Input"};
+                                            "Audio Input",
+                                            "Floaty Delay"};
 
 const char fx_type_shortnames[n_fx_types][16] = {
     "Off",         "Delay",      "Reverb 1",      "Phaser",        "Rotary",     "Distortion",
     "EQ",          "Freq Shift", "Conditioner",   "Chorus",        "Vocoder",    "Reverb 2",
     "Flanger",     "Ring Mod",   "Airwindows",    "Neuron",        "Graphic EQ", "Resonator",
     "CHOW",        "Exciter",    "Ensemble",      "Combulator",    "Nimbus",     "Tape",
-    "Treemonster", "Waveshaper", "Mid-Side Tool", "Spring Reverb", "Bonsai",     "Audio In"};
+    "Treemonster", "Waveshaper", "Mid-Side Tool", "Spring Reverb", "Bonsai",     "Audio In",
+    "Floaty Delay"};
 
 const char fx_type_acronyms[n_fx_types][8] = {
-    "OFF", "DLY", "RV1", "PH",   "ROT", "DIST", "EQ",  "FRQ", "DYN", "CH",
-    "VOC", "RV2", "FL",  "RM",   "AW",  "NEU",  "GEQ", "RES", "CHW", "XCT",
-    "ENS", "CMB", "NIM", "TAPE", "TM",  "WS",   "M-S", "SRV", "BON", "IN"};
+    "OFF", "DLY",  "RV1", "PH", "ROT", "DIST", "EQ",  "FRQ", "DYN", "CH",  "VOC",
+    "RV2", "FL",   "RM",  "AW", "NEU", "GEQ",  "RES", "CHW", "XCT", "ENS", "CMB",
+    "NIM", "TAPE", "TM",  "WS", "M-S", "SRV",  "BON", "IN",  "FDL"};
 
 enum fx_bypass
 {
@@ -1031,7 +1035,7 @@ class SurgePatch
     void init_default_values();
     void update_controls(bool init = false, void *init_osc = 0, bool from_stream = false);
     void do_morph();
-    void copy_scenedata(pdata *, int scene);
+    void copy_scenedata(pdata *, pdata *, int scene);
     void copy_globaldata(pdata *);
 
     // load/save
@@ -1086,6 +1090,7 @@ class SurgePatch
 
     std::vector<ModulationRouting> modulation_global;
     pdata scenedata[n_scenes][n_scene_params];
+    pdata scenedataOrig[n_scenes][n_scene_params];
     pdata globaldata[n_global_params];
     void *patchptr;
     SurgeStorage *storage;
@@ -1359,9 +1364,11 @@ class alignas(16) SurgeStorage
     bool oscReceiving{false};
     bool oscSending{false};
 
-    int voiceCount; // TODO: use SurgeSynthesizer class to fetch synth->polydisplay directly from
-                    // valueAt() in FormulaModulationHelper.cpp where it's needed and remove
-                    // this and its assignment in SurgeSynthesizer.cpp
+    /*
+     * A bit of a cheat - this isn't really the storage, but is updated by the synth at render time.
+     * We put it here so LFOS can get it, which formula needs
+     */
+    std::atomic<int> activeVoiceCount{0};
 
     bool getOverrideDataHome(std::string &value);
     void createUserDirectory();
@@ -1381,10 +1388,18 @@ class alignas(16) SurgeStorage
 
     void load_wt(int id, Wavetable *wt, OscillatorStorage *);
     void load_wt(std::string filename, Wavetable *wt, OscillatorStorage *);
-    bool load_wt_wt(std::string filename, Wavetable *wt);
+    bool load_wt_wt(std::string filename, Wavetable *wt, std::string &metadata);
     bool load_wt_wt_mem(const char *data, const size_t dataSize, Wavetable *wt);
-    bool load_wt_wav_portable(std::string filename, Wavetable *wt);
-    std::string export_wt_wav_portable(std::string fbase, Wavetable *wt);
+    bool load_wt_wav_portable(std::string filename, Wavetable *wt, std::string &metadata);
+    std::string export_wt_wav_portable(const std::string &fbase, Wavetable *wt,
+                                       const std::string &metadata);
+    std::string export_wt_wav_portable(const fs::path &fpath, Wavetable *wt,
+                                       const std::string &metadata);
+    bool export_wt_wt_portable(const fs::path &fpath, Wavetable *wt, const std::string &metadata);
+
+    std::string make_wt_metadata(OscillatorStorage *);
+    bool parse_wt_metadata(const std::string &, OscillatorStorage *);
+
     void clipboard_copy(int type, int scene, int entry, modsources ms = ms_original);
     // this function is a bit of a hack to stop me having a reference to SurgeSynth here
     // and also to stop me having to move all of isValidModulation and its buddies onto SurgeStorage
@@ -1799,6 +1814,12 @@ bool isValidUTF8(const std::string &testThis);
 
 std::string findReplaceSubstring(std::string &source, const std::string &from,
                                  const std::string &to);
+
+bool is_base64(unsigned char c);
+std::string base64_encode(unsigned char const *bytes_to_encode, unsigned int in_len);
+std::string base64_decode(std::string const &encoded_string);
+
+bool getValueDispPrecision(SurgeStorage *storage);
 
 } // namespace Storage
 } // namespace Surge

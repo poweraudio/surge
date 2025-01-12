@@ -19,6 +19,9 @@
  * All source for Surge XT is available at
  * https://github.com/surge-synthesizer/surge
  */
+
+#include <juce_gui_extra/juce_gui_extra.h>
+
 #include "TuningOverlays.h"
 #include "RuntimeFont.h"
 #include "SurgeStorage.h"
@@ -29,7 +32,6 @@
 #include "widgets/MultiSwitch.h"
 #include "fmt/core.h"
 #include <chrono>
-#include "juce_gui_extra/juce_gui_extra.h"
 #include "UnitConversions.h"
 #include "libMTSClient.h"
 
@@ -551,19 +553,19 @@ class RadialScaleGraph : public juce::Component,
                     toneInterior->addAndMakeVisible(*tk);
                     toneKnobs.push_back(std::move(tk));
 
-                    showHideKnob = std::make_unique<Surge::Widgets::MultiSwitchSelfDraw>();
-                    showHideKnob->setSkin(skin, associatedBitmapStore);
-                    showHideKnob->setStorage(storage);
-                    showHideKnob->setRows(1);
-                    showHideKnob->setColumns(1);
-                    showHideKnob->setTag(12345);
-                    showHideKnob->setLabels({"Hide"});
-                    showHideKnob->addListener(this);
+                    hideBtn = std::make_unique<Surge::Widgets::MultiSwitchSelfDraw>();
+                    hideBtn->setSkin(skin, associatedBitmapStore);
+                    hideBtn->setStorage(storage);
+                    hideBtn->setRows(1);
+                    hideBtn->setColumns(1);
+                    hideBtn->setTag(12345);
+                    hideBtn->setLabels({"Hide"});
+                    hideBtn->addListener(this);
 
-                    showHideKnob->setBounds(
+                    hideBtn->setBounds(
                         totalR.withTrimmedLeft(labw + m).withTrimmedRight(h + m).reduced(3));
 
-                    toneInterior->addAndMakeVisible(*showHideKnob);
+                    toneInterior->addAndMakeVisible(*hideBtn);
                 }
                 else
                 {
@@ -651,14 +653,14 @@ class RadialScaleGraph : public juce::Component,
 
     void valueChanged(GUI::IComponentTagValue *p) override
     {
-        if (p == showHideKnob.get())
+        if (p == hideBtn.get())
         {
             centsShowing = !centsShowing;
             for (const auto &t : toneEditors)
             {
                 t->setPasswordCharacter(centsShowing ? 0 : 0x2022);
             }
-            showHideKnob->setLabels({centsShowing ? "Hide" : "Show"});
+            hideBtn->setLabels({centsShowing ? "Hide" : "Show"});
         }
         if (p == radialModeKnob.get())
         {
@@ -681,9 +683,9 @@ class RadialScaleGraph : public juce::Component,
 
     void onSkinChanged() override
     {
-        if (showHideKnob)
+        if (hideBtn)
         {
-            showHideKnob->setSkin(skin, associatedBitmapStore);
+            hideBtn->setSkin(skin, associatedBitmapStore);
         }
 
         for (const auto &k : toneKnobs)
@@ -730,14 +732,14 @@ class RadialScaleGraph : public juce::Component,
         [](int, const std::string &) {};
     std::function<void(double)> onScaleRescaled = [](double) {};
     std::function<void(double)> onScaleRescaledAbsolute = [](double) {};
-    static constexpr int usedForSidebar = 160;
+    static constexpr int usedForSidebar = 185;
 
     std::unique_ptr<juce::Viewport> toneList;
     std::unique_ptr<juce::Component> toneInterior;
     std::vector<std::unique_ptr<juce::TextEditor>> toneEditors;
     std::vector<std::unique_ptr<juce::Label>> toneLabels;
     std::vector<std::unique_ptr<InfiniteKnob>> toneKnobs;
-    std::unique_ptr<Surge::Widgets::MultiSwitchSelfDraw> showHideKnob, radialModeKnob;
+    std::unique_ptr<Surge::Widgets::MultiSwitchSelfDraw> hideBtn, radialModeKnob;
 
     void resized() override
     {
@@ -861,7 +863,7 @@ void RadialScaleGraph::paint(juce::Graphics &g)
 
     g.fillAll(skin->getColor(clr::Background));
 
-    int w = getWidth() - usedForSidebar;
+    int w = getWidth() - usedForSidebar - 25;
     int h = getHeight();
     float r = std::min(w, h) / 2.1;
     float xo = (w - 2 * r) / 2.0;
@@ -1678,7 +1680,7 @@ struct IntervalMatrix : public juce::Component, public Surge::GUI::SkinConsuming
             namespace clr = Colors::TuningOverlay::Interval;
             g.fillAll(skin->getColor(clr::Background));
             auto ic = matrix->tuning.scale.count;
-            int mt = ic + (mode == ROTATION ? 1 : 2);
+            int mt = ic + 2;
             g.setFont(skin->fontManager->getLatoAtSize(9));
             for (int i = 0; i < mt; ++i)
             {
@@ -1795,9 +1797,10 @@ struct IntervalMatrix : public juce::Component, public Surge::GUI::SkinConsuming
                         auto evenStep = lastTone / matrix->tuning.scale.count;
                         auto desCents = disNote * evenStep;
 
+                        juce::Colour bg;
                         if (fabs(cdiff - desCents) < 0.1)
                         {
-                            g.setColour(skin->getColor(clr::HeatmapZero));
+                            bg = (skin->getColor(clr::HeatmapZero));
                         }
                         else if (cdiff < desCents)
                         {
@@ -1806,7 +1809,7 @@ struct IntervalMatrix : public juce::Component, public Surge::GUI::SkinConsuming
                             auto r = (1.0 - dist);
                             auto c1 = skin->getColor(clr::HeatmapNegFar);
                             auto c2 = skin->getColor(clr::HeatmapNegNear);
-                            g.setColour(c1.interpolatedWith(c2, r));
+                            bg = (c1.interpolatedWith(c2, r));
                         }
                         else
                         {
@@ -1814,15 +1817,23 @@ struct IntervalMatrix : public juce::Component, public Surge::GUI::SkinConsuming
                             auto b = 1.0 - dist;
                             auto c1 = skin->getColor(clr::HeatmapPosFar);
                             auto c2 = skin->getColor(clr::HeatmapPosNear);
-                            g.setColour(c1.interpolatedWith(c2, b));
+                            bg = (c1.interpolatedWith(c2, b));
                         }
+                        if (i == mt - 1 || i == 1)
+                            bg = skin->getColor(clr::HeatmapZero).withAlpha(0.9f);
+
+                        g.setColour(bg);
                         g.fillRect(bx);
 
+                        juce::Colour fg;
                         if (isHovered)
-                            g.setColour(skin->getColor(clr::IntervalTextHover));
+                            fg = skin->getColor(clr::IntervalTextHover);
                         else
-                            g.setColour(skin->getColor(clr::IntervalText));
+                            fg = skin->getColor(clr::IntervalText);
+                        if (i == mt - 1 || i == 1)
+                            fg = fg.withAlpha(0.7f);
 
+                        g.setColour(fg);
                         g.drawText(fmt::format("{:.1f}", cdiff), bx, juce::Justification::centred);
                     }
                 }
@@ -1879,8 +1890,14 @@ struct IntervalMatrix : public juce::Component, public Surge::GUI::SkinConsuming
 
             if (mode == ROTATION)
             {
-                int tonI = (hoverI - 1 + hoverJ - 2) % matrix->tuning.scale.count;
-                matrix->overlay->onToneChanged(tonI, matrix->tuning.scale.tones[tonI].cents + dPos);
+                if (hoverI > 1 && hoverI <= matrix->tuning.scale.count)
+                {
+                    int tonI = (hoverI - 1 + hoverJ - 2);
+
+                    tonI = tonI % matrix->tuning.scale.count;
+                    matrix->overlay->onToneChanged(tonI,
+                                                   matrix->tuning.scale.tones[tonI].cents + dPos);
+                }
             }
             else
             {

@@ -121,7 +121,7 @@ end
     {
         if (fs->formulaString != lua_tostring(s.L, -1))
         {
-            s.adderror("Hash Collision in function. Bad luck!");
+            s.adderror("Hash collision in function! Bad luck...");
         }
         else
         {
@@ -177,7 +177,7 @@ end
         }
         else
         {
-            s.adderror("Unable to determine 'process' or 'init' function : " + emsg);
+            s.adderror("Unable to determine process() or init() function : " + emsg);
             lua_pop(s.L, 1); // process
             lua_pop(s.L, 1); // process
             stateData.knownBadFunctions.insert(s.funcName);
@@ -250,7 +250,7 @@ end
                 if (!lua_istable(s.L, -1))
                 {
                     s.isvalid = false;
-                    s.adderror("The init() function must return a table. This usually means "
+                    s.adderror("The init() function must return a table.\nThis usually means "
                                "that you didn't close the init() function with 'return state' "
                                "before the 'end' statement.");
                     stateData.knownBadFunctions.insert(s.funcName);
@@ -260,7 +260,7 @@ end
             {
                 s.isvalid = false;
                 std::ostringstream oss;
-                oss << "Failed to evaluate 'init' function. " << lua_tostring(s.L, -1);
+                oss << "Failed to evaluate init() function! " << lua_tostring(s.L, -1);
                 s.adderror(oss.str());
                 stateData.knownBadFunctions.insert(s.funcName);
             }
@@ -281,7 +281,7 @@ end
             if (!lua_istable(s.L, -1))
             {
                 lua_pop(s.L, -1);
-                std::cout << "Not a table" << std::endl;
+                std::cout << "Not a table!" << std::endl;
             }
             else
             {
@@ -327,11 +327,9 @@ end
                     {
                         lua_pushnumber(s.L, i + 1);
                         lua_gettable(s.L, -2);
-                        bool res = false;
-                        if (lua_isboolean(s.L, -1))
-                            res = lua_toboolean(s.L, -1);
+                        const bool res = (lua_isboolean(s.L, -1)) ? lua_toboolean(s.L, -1) : false;
                         lua_pop(s.L, 1);
-                        s.subAnyMacro = s.subAnyMacro | res;
+                        s.subAnyMacro = s.subAnyMacro || res;
                         s.subMacros[i] = res;
                     }
                 }
@@ -387,7 +385,7 @@ end
         s.is_display = true;
 
     if (s.raisedError)
-        std::cout << "ERROR: " << *(s.error) << std::endl;
+        std::cout << "Error: " << *(s.error) << std::endl;
 #endif
 
     return true;
@@ -507,8 +505,8 @@ void valueAt(int phaseIntPart, float phaseFracPart, SurgeStorage *storage,
     addi("cycle", phaseIntPart); // Alias cycle for intphase
 
     // Fake a voice count of one for display calls
-    int voiceCount = storage->voiceCount;
-    if (voiceCount == 0)
+    int voiceCount = storage->activeVoiceCount;
+    if (voiceCount == 0 && s->is_display)
         voiceCount = 1;
     addi("voice_count", voiceCount);
 
@@ -622,9 +620,9 @@ void valueAt(int phaseIntPart, float phaseFracPart, SurgeStorage *storage,
         }
         if (!lua_istable(s->L, -1))
         {
-            s->adderror(
-                "The return of your LUA function must be a number or table. Just return input with "
-                "output set.");
+            s->adderror("The return of your Lua function must be a number or table!\nJust return "
+                        "input with "
+                        "output set.");
             s->isvalid = false;
             lua_pop(s->L, 1);
             return;
@@ -656,13 +654,13 @@ void valueAt(int phaseIntPart, float phaseFracPart, SurgeStorage *storage,
                 if (idx <= 0 || idx > max_formula_outputs)
                 {
                     std::ostringstream oss;
-                    oss << "Error with vector output. The vector output must be"
+                    oss << "Error with vector output!\nThe vector output must be"
                         << " an array with size up to 8. Your table contained"
                         << " index " << idx;
                     if (idx == -1)
-                        oss << " which is not an integer array index.";
+                        oss << ", which is not an integer array index.";
                     if (idx > max_formula_outputs)
-                        oss << " which means your result is too long.";
+                        oss << ", which means your array is too large.";
                     s->adderror(oss.str());
                     auto &stateData = *storage->formulaGlobalData;
                     stateData.knownBadFunctions.insert(s->funcName);
@@ -685,8 +683,8 @@ void valueAt(int phaseIntPart, float phaseFracPart, SurgeStorage *storage,
 
             if (stateData.knownBadFunctions.find(s->funcName) != stateData.knownBadFunctions.end())
                 s->adderror(
-                    "You must define the 'output' field in the returned table as a number or "
-                    "float array");
+                    "You must define the 'output' field in the returned table as a number or a "
+                    "float array!");
             stateData.knownBadFunctions.insert(s->funcName);
             s->isvalid = false;
         };
@@ -726,7 +724,7 @@ void valueAt(int phaseIntPart, float phaseFracPart, SurgeStorage *storage,
     {
         s->isvalid = false;
         std::ostringstream oss;
-        oss << "Failed to evaluate 'process' function." << lua_tostring(s->L, -1);
+        oss << "Failed to evaluate the process() function!" << lua_tostring(s->L, -1);
         s->adderror(oss.str());
         lua_pop(s->L, 1);
         return;
@@ -832,14 +830,13 @@ std::vector<DebugRow> createDebugDataOfModState(const EvaluatorState &es)
         }
     };
 
-    std::vector<std::string> tablesList = {es.stateName, sharedTableName};
-    for (const auto &t : tablesList)
+    for (const auto &t : {es.stateName, sharedTableName})
     {
-        lua_getglobal(es.L, t.c_str());
+        lua_getglobal(es.L, t);
         if (!lua_istable(es.L, -1))
         {
             lua_pop(es.L, -1);
-            rows.emplace_back(0, "Error", "Not a Table");
+            rows.emplace_back(0, "Error", "Not a table");
             continue;
         }
         rec(0, false);

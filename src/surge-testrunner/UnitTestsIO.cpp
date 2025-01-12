@@ -51,10 +51,12 @@ TEST_CASE("We Can Read Wavetables", "[io]")
     auto surge = Surge::Headless::createSurge(44100);
     REQUIRE(surge.get());
 
+    std::string metadata;
+
     SECTION("Wavetable.wav")
     {
         auto wt = &(surge->storage.getPatch().scene[0].osc[0].wt);
-        surge->storage.load_wt_wav_portable("resources/test-data/wav/Wavetable.wav", wt);
+        surge->storage.load_wt_wav_portable("resources/test-data/wav/Wavetable.wav", wt, metadata);
         REQUIRE(wt->size == 2048);
         REQUIRE(wt->n_tables == 256);
         REQUIRE((wt->flags & wtf_is_sample) == 0);
@@ -63,7 +65,7 @@ TEST_CASE("We Can Read Wavetables", "[io]")
     SECTION("05_BELL.WAV")
     {
         auto wt = &(surge->storage.getPatch().scene[0].osc[0].wt);
-        surge->storage.load_wt_wav_portable("resources/test-data/wav/05_BELL.WAV", wt);
+        surge->storage.load_wt_wav_portable("resources/test-data/wav/05_BELL.WAV", wt, metadata);
         REQUIRE(wt->size == 2048);
         REQUIRE(wt->n_tables == 33);
         REQUIRE((wt->flags & wtf_is_sample) == 0);
@@ -72,7 +74,7 @@ TEST_CASE("We Can Read Wavetables", "[io]")
     SECTION("pluckalgo.wav")
     {
         auto wt = &(surge->storage.getPatch().scene[0].osc[0].wt);
-        surge->storage.load_wt_wav_portable("resources/test-data/wav/pluckalgo.wav", wt);
+        surge->storage.load_wt_wav_portable("resources/test-data/wav/pluckalgo.wav", wt, metadata);
         REQUIRE(wt->size == 2048);
         REQUIRE(wt->n_tables == 9);
         REQUIRE((wt->flags & wtf_is_sample) == 0);
@@ -447,7 +449,6 @@ TEST_CASE("Stream Wavetable Names", "[io]")
 
 TEST_CASE("Load Patches With Embedded KBM", "[io]")
 {
-    std::vector<std::string> patches = {};
     SECTION("Check Restore")
     {
         {
@@ -728,5 +729,59 @@ TEST_CASE("Mono Voice Priority Streams", "[io]")
             REQUIRE(sdst->storage.getPatch().scene[1].monoVoicePriorityMode ==
                     (MonoVoicePriorityMode)r2);
         }
+    }
+}
+
+TEST_CASE("XML Direct", "[io]")
+{
+    // This is not a public API but we want to make sure it
+    // doesn't nuke surge with garbage
+    SECTION("Nothin")
+    {
+        auto surge = Surge::Headless::createSurge(44100);
+        std::string blank{};
+        surge->storage.getPatch().load_xml(blank.c_str(), blank.size(), false);
+    }
+
+    SECTION("Not XML")
+    {
+        auto surge = Surge::Headless::createSurge(44100);
+        std::string test{"This Is Not A Standard String, says Renee"};
+        surge->storage.getPatch().load_xml(test.c_str(), test.size(), false);
+    }
+
+    SECTION("Not XML")
+    {
+        auto surge = Surge::Headless::createSurge(44100);
+        std::string test{"This Is Not A Standard String, says Renee"};
+        surge->storage.getPatch().load_xml(test.c_str(), test.size(), false);
+    }
+
+    SECTION("Funny root node")
+    {
+        auto surge = Surge::Headless::createSurge(44100);
+        std::string test{"<funny/>"};
+        surge->storage.getPatch().load_xml(test.c_str(), test.size(), false);
+    }
+
+    SECTION("Invalid XML")
+    {
+        auto surge = Surge::Headless::createSurge(44100);
+        std::string test{"<funny></business>"};
+        surge->storage.getPatch().load_xml(test.c_str(), test.size(), false);
+    }
+
+    SECTION("Empty Patch")
+    {
+        auto surge = Surge::Headless::createSurge(44100);
+        std::string test{"<patch/>"};
+        surge->storage.getPatch().load_xml(test.c_str(), test.size(), false);
+    }
+
+    SECTION("Empty Parameters")
+    {
+        auto surge = Surge::Headless::createSurge(44100);
+        std::string test{"<patch><parameters/></patch>"};
+        surge->storage.getPatch().load_xml(test.c_str(), test.size(), false);
     }
 }

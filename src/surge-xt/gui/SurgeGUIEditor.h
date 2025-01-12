@@ -54,12 +54,17 @@
 #include <bitset>
 #include "UndoManager.h"
 
+// Change this to 0 to disable WTSE component, to disable for release: change value, test, and push
+#define INCLUDE_WT_SCRIPTING_EDITOR 1
+
 class SurgeSynthEditor;
 
+#if SURGE_INCLUDE_MELATONIN_INSPECTOR
 namespace melatonin
 {
 class Inspector;
 }
+#endif
 
 namespace Surge
 {
@@ -183,7 +188,9 @@ class SurgeGUIEditor : public Surge::GUI::IComponentTagValue::Listener,
 
     bool debugFocus{false};
     void globalFocusChanged(juce::Component *fc) override;
+#if SURGE_INCLUDE_MELATONIN_INSPECTOR
     std::unique_ptr<melatonin::Inspector> melatoninInspector;
+#endif
 
   protected:
     virtual void setParameter(long index, float value);
@@ -256,6 +263,8 @@ class SurgeGUIEditor : public Surge::GUI::IComponentTagValue::Listener,
     void setModsourceSelected(modsources ms, int ms_idx = 0);
 
     SurgeSynthesizer *synth = nullptr;
+
+    void forceLfoDisplayRepaint();
 
   private:
     void openOrRecreateEditor();
@@ -397,7 +406,7 @@ class SurgeGUIEditor : public Surge::GUI::IComponentTagValue::Listener,
         PATCH_BROWSER,
         MODULATION_EDITOR,
         FORMULA_EDITOR,
-        WTSCRIPT_EDITOR, // This code is here but incomplete, and off in XT 1.0
+        WT_EDITOR,
         TUNING_EDITOR,
         WAVESHAPER_ANALYZER,
         FILTER_ANALYZER,
@@ -773,7 +782,10 @@ class SurgeGUIEditor : public Surge::GUI::IComponentTagValue::Listener,
     Parameter *typeinEditTarget = nullptr;
     int typeinModSource = -1;
 
+  public:
     std::unique_ptr<Surge::Widgets::OscillatorWaveformDisplay> oscWaveform;
+
+  private:
     std::unique_ptr<Surge::Widgets::NumberField> polydisp;
     std::unique_ptr<Surge::Widgets::NumberField> splitpointControl;
 

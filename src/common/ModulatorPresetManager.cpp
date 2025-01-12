@@ -25,7 +25,6 @@
 #include "DebugHelpers.h"
 #include "SurgeStorage.h"
 #include "tinyxml/tinyxml.h"
-#include "DebugHelpers.h"
 #include "sst/plugininfra/strnatcmp.h"
 
 namespace Surge
@@ -81,7 +80,7 @@ void ModulatorPreset::savePresetToUser(const fs::path &location, SurgeStorage *s
             // OK the internal name has "lfo7_" at the top or what not. We need this
             // loadable into any LFO so...
             std::string in(curr->get_internal_name());
-            auto p = in.find("_");
+            auto p = in.find('_');
             in = in.substr(p + 1);
             TiXmlElement pn(in);
 
@@ -118,6 +117,26 @@ void ModulatorPreset::savePresetToUser(const fs::path &location, SurgeStorage *s
             lfox.InsertEndChild(fm);
         }
 
+        if (lfotype == lt_formula)
+        {
+            TiXmlElement xtraName("indexNames");
+            bool hasAny{false};
+            for (int i = 0; i < max_lfo_indices; ++i)
+            {
+                if (s->getPatch().LFOBankLabel[scene][lfoid][i][0] != 0)
+                {
+                    hasAny = true;
+                    TiXmlElement xn("name");
+                    xn.SetAttribute("index", i);
+                    xn.SetAttribute("name", s->getPatch().LFOBankLabel[scene][lfoid][i]);
+                    xtraName.InsertEndChild(xn);
+                }
+            }
+            if (hasAny)
+            {
+                lfox.InsertEndChild(xtraName);
+            }
+        }
         doc.InsertEndChild(lfox);
 
         if (!doc.SaveFile(fullLocation))
@@ -176,7 +195,7 @@ void ModulatorPreset::loadPresetFrom(const fs::path &location, SurgeStorage *s, 
         // OK the internal name has "lfo7_" at the top or what not. We need this
         // loadable into any LFO so...
         std::string in(curr->get_internal_name());
-        auto p = in.find("_");
+        auto p = in.find('_');
         in = in.substr(p + 1);
         auto valNode = params->FirstChildElement(in.c_str());
         if (valNode)
@@ -240,6 +259,26 @@ void ModulatorPreset::loadPresetFrom(const fs::path &location, SurgeStorage *s, 
         if (frm)
             s->getPatch().formulaFromXMLElement(&(s->getPatch().formulamods[scene][lfoid]), frm);
     }
+
+    auto xn = lfox->FirstChildElement("indexNames");
+    if (xn)
+    {
+        auto nn = xn->FirstChildElement("name");
+        while (nn)
+        {
+            auto na = nn->Attribute("name");
+            int ni{0};
+            auto res = nn->QueryIntAttribute("index", &ni);
+            if (na && res == TIXML_SUCCESS && ni >= 0 && ni < max_lfo_indices)
+            {
+                memset(s->getPatch().LFOBankLabel[scene][lfoid][ni], 0,
+                       CUSTOM_CONTROLLER_LABEL_SIZE * sizeof(char));
+                strncpy(s->getPatch().LFOBankLabel[scene][lfoid][ni], na,
+                        CUSTOM_CONTROLLER_LABEL_SIZE - 1);
+            }
+            nn = nn->NextSiblingElement("name");
+        }
+    }
 }
 
 /*
@@ -263,13 +302,11 @@ std::vector<ModulatorPreset::Category> ModulatorPreset::getPresets(SurgeStorage 
         bool isU = i;
         try
         {
-            std::string currentCategoryName = "";
             Category currentCategory;
             for (auto &d : fs::recursive_directory_iterator(p))
             {
                 auto dp = fs::path(d);
                 auto base = dp.stem();
-                auto fn = dp.filename();
                 auto ext = dp.extension();
                 if (path_to_string(ext) != ".modpreset")
                 {

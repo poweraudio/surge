@@ -42,8 +42,15 @@ class WavetableOscillator : public AbstractBlitOscillator
         wt_unison_voices,
     };
 
+    enum FeatureDeform
+    {
+        XT_134_EARLIER = 0,
+        XT_14 = 1 << 0
+    };
+
     lipol_ps li_hpf, li_DC, li_integratormult;
-    WavetableOscillator(SurgeStorage *storage, OscillatorStorage *oscdata, pdata *localcopy);
+    WavetableOscillator(SurgeStorage *storage, OscillatorStorage *oscdata, pdata *localcopy,
+                        pdata *localcopyUnmod);
     virtual void init(float pitch, bool is_display = false,
                       bool nonzero_init_drift = true) override;
     virtual void init_ctrltypes() override;
@@ -54,10 +61,20 @@ class WavetableOscillator : public AbstractBlitOscillator
     virtual void handleStreamingMismatches(int streamingRevision,
                                            int currentSynthStreamingRevision) override;
 
+    void processSamplesForDisplay(float *samples, int size, bool real) override;
+
   private:
     void convolute(int voice, bool FM, bool stereo);
     template <bool is_init> void update_lagvals();
     inline float distort_level(float);
+    void readDeformType();
+    void selectDeform();
+    float getMorph();
+    float deformLegacy(float, int);
+    float deformContinuous(float, int);
+    float deformMorph(float, int);
+
+    float (WavetableOscillator::*deformSelected)(float, int);
     bool first_run;
     float oscpitch[MAX_UNISON];
     float dc, dc_uni[MAX_UNISON], last_level[MAX_UNISON];
@@ -72,6 +89,8 @@ class WavetableOscillator : public AbstractBlitOscillator
     int nointerp;
     float FMmul_inv;
     int sampleloop;
+    pdata *unmodulatedLocalcopy;
+    FeatureDeform deformType;
 };
 
 #endif // SURGE_SRC_COMMON_DSP_OSCILLATORS_WAVETABLEOSCILLATOR_H

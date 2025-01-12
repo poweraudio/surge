@@ -25,15 +25,20 @@
 
 #include "SurgeFXProcessor.h"
 #include "SurgeLookAndFeel.h"
+#include "KnobSource.h"
 
 #include "juce_gui_basics/juce_gui_basics.h"
+
+#include <sst/jucegui/style/StyleSheet.h>
+#include <sst/jucegui/components/Knob.h>
 
 //==============================================================================
 /**
  */
 class SurgefxAudioProcessorEditor : public juce::AudioProcessorEditor,
                                     juce::AsyncUpdater,
-                                    SurgeStorage::ErrorListener
+                                    SurgeStorage::ErrorListener,
+                                    sst::jucegui::style::StyleConsumer
 {
   public:
     SurgefxAudioProcessorEditor(SurgefxAudioProcessor &);
@@ -105,61 +110,10 @@ class SurgefxAudioProcessorEditor : public juce::AudioProcessorEditor,
 
     static constexpr int baseWidth = 600, baseHeight = 55 * 6 + 80 + topSection;
 
+    std::vector<std::unique_ptr<sst::jucegui::components::Knob>> knobs;
+    std::vector<std::unique_ptr<KnobSource>> sources;
+
   private:
-    struct AccSlider : public juce::Slider
-    {
-        AccSlider() { setWantsKeyboardFocus(true); }
-        juce::String getTextFromValue(double v) override
-        {
-            // std::cout << "GTFV " << v << std::endl;
-            // return juce::Slider::getTextFromValue(v);
-            //  This is a bit of a hack to externalize this but
-            return tv;
-        }
-
-        juce::String tv;
-        void setTextValue(juce::String s)
-        {
-            tv = s;
-            if (auto *handler = getAccessibilityHandler())
-            {
-                handler->notifyAccessibilityEvent(juce::AccessibilityEvent::valueChanged);
-            }
-        }
-        bool keyPressed(const juce::KeyPress &key) override
-        {
-            float amt = 0.05;
-            if (key.getModifiers().isShiftDown())
-                amt = 0.01;
-            if (key.getKeyCode() == juce::KeyPress::upKey)
-            {
-                setValue(std::clamp(getValue() + amt, 0., 1.),
-                         juce::NotificationType::sendNotification);
-                return true;
-            }
-
-            if (key.getKeyCode() == juce::KeyPress::downKey)
-            {
-                setValue(std::clamp(getValue() - amt, 0., 1.),
-                         juce::NotificationType::sendNotification);
-                return true;
-            }
-
-            if (key.getKeyCode() == juce::KeyPress::homeKey)
-            {
-                setValue(1., juce::NotificationType::sendNotification);
-                return true;
-            }
-
-            if (key.getKeyCode() == juce::KeyPress::endKey)
-            {
-                setValue(0., juce::NotificationType::sendNotification);
-                return true;
-            }
-            return false;
-        }
-    };
-    AccSlider fxParamSliders[n_fx_params];
     SurgeFXParamDisplay fxParamDisplay[n_fx_params];
     SurgeTempoSyncSwitch fxTempoSync[n_fx_params];
     SurgeTempoSyncSwitch fxDeactivated[n_fx_params];
@@ -196,6 +150,7 @@ class SurgefxAudioProcessorEditor : public juce::AudioProcessorEditor,
 
   public:
     std::vector<juce::Component *> accessibleOrderWeakRefs;
+    std::shared_ptr<sst::jucegui::style::StyleSheet> styleSheet;
 
   public:
     std::unique_ptr<juce::ComponentTraverser> createFocusTraverser() override;

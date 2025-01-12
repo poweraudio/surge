@@ -20,6 +20,8 @@
  * https://github.com/surge-synthesizer/surge
  */
 
+#if !defined(_M_ARM64EC)
+
 #include "BBDEnsembleEffect.h"
 
 #include "sst/basic-blocks/mechanics/block-ops.h"
@@ -277,7 +279,7 @@ void BBDEnsembleEffect::process_sinc_delays(float *dataL, float *dataR, float de
 
         float waveshaperOuts alignas(16)[4];
 
-        _mm_store_ps(waveshaperOuts, waveshaperOutsVec);
+        SIMD_MM(store_ps)(waveshaperOuts, waveshaperOutsVec);
 
         L[s] = waveshaperOuts[0] + waveshaperOuts[1];
         R[s] = waveshaperOuts[2] + waveshaperOuts[3];
@@ -389,7 +391,7 @@ void BBDEnsembleEffect::process(float *dataL, float *dataR)
 
             float waveshaperOuts alignas(16)[4];
 
-            _mm_store_ps(waveshaperOuts, waveshaperOutsVec);
+            SIMD_MM(store_ps)(waveshaperOuts, waveshaperOutsVec);
 
             L[s] = waveshaperOuts[0] + waveshaperOuts[1];
             R[s] = waveshaperOuts[2] + waveshaperOuts[3];
@@ -569,3 +571,5 @@ void BBDEnsembleEffect::handleStreamingMismatches(int streamingRevision,
         fxdata->p[ens_output_filter].deactivated = true;
     }
 }
+
+#endif

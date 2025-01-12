@@ -27,6 +27,7 @@
 #include "SurgeJUCELookAndFeel.h"
 #include <fmt/format.h>
 #include <StringOps.h>
+#include "RuntimeFont.h"
 
 namespace Surge
 {
@@ -82,11 +83,8 @@ void MenuTitleHelpComponent::getIdealSize(int &idealWidth, int &idealHeight)
 {
     auto standardMenuItemHeight = 25;
 
-    juce::Font font;
-
-    auto ft = getLookAndFeel().getPopupMenuFont();
-    ft = ft.withHeight(ft.getHeight() - 1);
-    font = ft;
+    auto font = getLookAndFeel().getPopupMenuFont();
+    font = font.withHeight(font.getHeight() - 1);
 
     if (isBoldened)
     {
@@ -99,7 +97,7 @@ void MenuTitleHelpComponent::getIdealSize(int &idealWidth, int &idealHeight)
 
     idealHeight =
         standardMenuItemHeight > 0 ? standardMenuItemHeight : std::round(font.getHeight() * 1.3f);
-    idealWidth = font.getStringWidth(label) + idealHeight * 2;
+    idealWidth = SST_STRING_WIDTH_INT(font, label) + idealHeight * 2;
     idealWidth += 20;
 }
 

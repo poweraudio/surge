@@ -978,14 +978,18 @@ void SurgePatch::init_default_values()
 
 SurgePatch::~SurgePatch() { free(patchptr); }
 
-void SurgePatch::copy_scenedata(pdata *d, int scene)
+void SurgePatch::copy_scenedata(pdata *d, pdata *dUnmod, int scene)
 {
+
     int s = scene_start[scene];
     for (int i = 0; i < n_scene_params; i++)
     {
         // if (param_ptr[i+s]->valtype == vt_float)
         // d[i].f = param_ptr[i+s]->val.f;
         d[i].i = param_ptr[i + s]->val.i;
+
+        if (param_ptr[i + s]->ctrlgroup == cg_OSC)
+            dUnmod[i].f = d[i].f;
     }
 
     for (int i = 0; i < paramModulationCount; ++i)
@@ -1068,7 +1072,7 @@ void SurgePatch::update_controls(
 
             unsigned char mbuf alignas(16)[oscillator_buffer_size];
             Oscillator *t_osc =
-                spawn_osc(sc.osc[osc].type.val.i, storage, &sc.osc[osc], nullptr, mbuf);
+                spawn_osc(sc.osc[osc].type.val.i, storage, &sc.osc[osc], nullptr, nullptr, mbuf);
             if (t_osc)
             {
                 t_osc->init_ctrltypes(sn, osc);
@@ -1104,100 +1108,6 @@ void SurgePatch::update_controls(
             }
         }
     }
-}
-
-// BASE 64 SUPPORT, THANKS TO:
-// https://renenyffenegger.ch/notes/development/Base64/Encoding-and-decoding-base-64-with-cpp
-static const std::string base64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                                        "abcdefghijklmnopqrstuvwxyz"
-                                        "0123456789+/";
-
-static inline bool is_base64(unsigned char c) { return (isalnum(c) || (c == '+') || (c == '/')); }
-
-std::string base64_encode(unsigned char const *bytes_to_encode, unsigned int in_len)
-{
-    std::string ret;
-    int i = 0;
-    int j = 0;
-    unsigned char char_array_3[3];
-    unsigned char char_array_4[4];
-
-    while (in_len--)
-    {
-        char_array_3[i++] = *(bytes_to_encode++);
-        if (i == 3)
-        {
-            char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
-            char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
-            char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
-            char_array_4[3] = char_array_3[2] & 0x3f;
-
-            for (i = 0; (i < 4); i++)
-                ret += base64_chars[char_array_4[i]];
-            i = 0;
-        }
-    }
-
-    if (i)
-    {
-        for (j = i; j < 3; j++)
-            char_array_3[j] = '\0';
-
-        char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
-        char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
-        char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
-
-        for (j = 0; (j < i + 1); j++)
-            ret += base64_chars[char_array_4[j]];
-
-        while ((i++ < 3))
-            ret += '=';
-    }
-
-    return ret;
-}
-
-std::string base64_decode(std::string const &encoded_string)
-{
-    int in_len = encoded_string.size();
-    int i = 0;
-    int j = 0;
-    int in_ = 0;
-    unsigned char char_array_4[4], char_array_3[3];
-    std::string ret;
-
-    while (in_len-- && (encoded_string[in_] != '=') && is_base64(encoded_string[in_]))
-    {
-        char_array_4[i++] = encoded_string[in_];
-        in_++;
-        if (i == 4)
-        {
-            for (i = 0; i < 4; i++)
-                char_array_4[i] = base64_chars.find(char_array_4[i]);
-
-            char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
-            char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
-            char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
-
-            for (i = 0; (i < 3); i++)
-                ret += char_array_3[i];
-            i = 0;
-        }
-    }
-
-    if (i)
-    {
-        for (j = 0; j < i; j++)
-            char_array_4[j] = base64_chars.find(char_array_4[j]);
-
-        char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
-        char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
-
-        for (j = 0; (j < i - 1); j++)
-            ret += char_array_3[j];
-    }
-
-    return ret;
 }
 
 void SurgePatch::load_patch(const void *data, int datasize, bool preset)
@@ -1512,7 +1422,10 @@ void SurgePatch::load_xml(const void *data, int datasize, bool is_preset)
     }
 
     TiXmlElement *parameters = TINYXML_SAFE_TO_ELEMENT(patch->FirstChild("parameters"));
-    assert(parameters);
+    if (!parameters)
+    {
+        return;
+    }
     int n = param_ptr.size();
 
     // delete volume (below streaming version 17) & fx_bypass if it's a preset
@@ -2337,7 +2250,7 @@ void SurgePatch::load_xml(const void *data, int datasize, bool is_preset)
                     int wfi;
 
                     scene[ssc].osc[sos].wavetable_formula =
-                        base64_decode(lkid->Attribute("wavetable_formula"));
+                        Surge::Storage::base64_decode(lkid->Attribute("wavetable_formula"));
 
                     if (lkid->QueryIntAttribute("wavetable_formula_nframes", &wfi) == TIXML_SUCCESS)
                     {
@@ -2649,7 +2562,7 @@ void SurgePatch::load_xml(const void *data, int datasize, bool is_preset)
 
         if (pt && (td = pt->Attribute("v")))
         {
-            auto tc = base64_decode(td);
+            auto tc = Surge::Storage::base64_decode(td);
 
             patchTuning.tuningStoredInPatch = true;
             patchTuning.scaleContents = tc;
@@ -2657,7 +2570,7 @@ void SurgePatch::load_xml(const void *data, int datasize, bool is_preset)
 
         if (pt && (td = pt->Attribute("m")))
         {
-            auto tc = base64_decode(td);
+            auto tc = Surge::Storage::base64_decode(td);
 
             patchTuning.tuningStoredInPatch = true;
             patchTuning.mappingContents = tc;
@@ -3111,7 +3024,7 @@ void SurgePatch::load_xml(const void *data, int datasize, bool is_preset)
 
                 if (p && (td = p->Attribute("v")))
                 {
-                    auto tc = base64_decode(td);
+                    auto tc = Surge::Storage::base64_decode(td);
 
                     dawExtraState.scaleContents = tc;
                 }
@@ -3130,7 +3043,7 @@ void SurgePatch::load_xml(const void *data, int datasize, bool is_preset)
 
                 if (p && (td = p->Attribute("v")))
                 {
-                    auto tc = base64_decode(td);
+                    auto tc = Surge::Storage::base64_decode(td);
 
                     dawExtraState.mappingContents = tc;
                 }
@@ -3494,8 +3407,9 @@ unsigned int SurgePatch::save_xml(void **data) // allocates mem, must be freed b
                 auto wtfo = scene[sc].osc[os].wavetable_formula;
                 auto wtfol = wtfo.length();
 
-                on.SetAttribute("wavetable_formula",
-                                base64_encode((unsigned const char *)wtfo.c_str(), wtfol));
+                on.SetAttribute(
+                    "wavetable_formula",
+                    Surge::Storage::base64_encode((unsigned const char *)wtfo.c_str(), wtfol));
                 on.SetAttribute("wavetable_formula_nframes",
                                 scene[sc].osc[os].wavetable_formula_nframes);
                 on.SetAttribute("wavetable_formula_res_base",
@@ -3656,13 +3570,14 @@ unsigned int SurgePatch::save_xml(void **data) // allocates mem, must be freed b
     if (patchTuning.tuningStoredInPatch)
     {
         TiXmlElement pt("patchTuning");
-        pt.SetAttribute("v", base64_encode((unsigned const char *)patchTuning.scaleContents.c_str(),
-                                           patchTuning.scaleContents.size()));
+        pt.SetAttribute("v", Surge::Storage::base64_encode(
+                                 (unsigned const char *)patchTuning.scaleContents.c_str(),
+                                 patchTuning.scaleContents.size()));
         if (patchTuning.mappingContents.size() > 0)
         {
-            pt.SetAttribute(
-                "m", base64_encode((unsigned const char *)patchTuning.mappingContents.c_str(),
-                                   patchTuning.mappingContents.size()));
+            pt.SetAttribute("m", Surge::Storage::base64_encode(
+                                     (unsigned const char *)patchTuning.mappingContents.c_str(),
+                                     patchTuning.mappingContents.size()));
             pt.SetAttribute("mname", patchTuning.mappingName);
         }
 
@@ -3855,9 +3770,9 @@ unsigned int SurgePatch::save_xml(void **data) // allocates mem, must be freed b
         ** so just protect ourselves with a base 64 encoding.
         */
         TiXmlElement tnc("tuningContents");
-        tnc.SetAttribute("v",
-                         base64_encode((unsigned const char *)dawExtraState.scaleContents.c_str(),
-                                       dawExtraState.scaleContents.size()));
+        tnc.SetAttribute("v", Surge::Storage::base64_encode(
+                                  (unsigned const char *)dawExtraState.scaleContents.c_str(),
+                                  dawExtraState.scaleContents.size()));
         dawExtraXML.InsertEndChild(tnc);
 
         TiXmlElement hmp("hasMapping");
@@ -3870,9 +3785,9 @@ unsigned int SurgePatch::save_xml(void **data) // allocates mem, must be freed b
         ** so just protect ourselves with a base 64 encoding.
         */
         TiXmlElement mpc("mappingContents");
-        mpc.SetAttribute("v",
-                         base64_encode((unsigned const char *)dawExtraState.mappingContents.c_str(),
-                                       dawExtraState.mappingContents.size()));
+        mpc.SetAttribute("v", Surge::Storage::base64_encode(
+                                  (unsigned const char *)dawExtraState.mappingContents.c_str(),
+                                  dawExtraState.mappingContents.size()));
         dawExtraXML.InsertEndChild(mpc);
 
         TiXmlElement mpn("mappingName");
@@ -4177,7 +4092,8 @@ void SurgePatch::stepSeqFromXmlElement(StepSequencerStorage *ss, TiXmlElement *p
 
 void SurgePatch::formulaToXMLElement(FormulaModulatorStorage *fs, TiXmlElement &parent) const
 {
-    parent.SetAttribute("formula", base64_encode((unsigned const char *)fs->formulaString.c_str(),
+    parent.SetAttribute(
+        "formula", Surge::Storage::base64_encode((unsigned const char *)fs->formulaString.c_str(),
                                                  fs->formulaString.length()));
     parent.SetAttribute("interpreter", (int)fs->interpreter);
 }
@@ -4185,7 +4101,7 @@ void SurgePatch::formulaToXMLElement(FormulaModulatorStorage *fs, TiXmlElement &
 void SurgePatch::formulaFromXMLElement(FormulaModulatorStorage *fs, TiXmlElement *parent) const
 {
     auto fb64 = parent->Attribute("formula");
-    fs->setFormula(base64_decode(fb64));
+    fs->setFormula(Surge::Storage::base64_decode(fb64));
 
     int interp;
     fs->interpreter = FormulaModulatorStorage::LUA;

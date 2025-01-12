@@ -29,38 +29,9 @@
 #include <algorithm>
 #include <string>
 
-// if you hit this on msvc and pass the above, you probably need /Zc:__cplusplus
-static_assert(__cplusplus == 201703L, "Surge requires C++17; please update your build");
+#include <cmath>
 
-#if MAC
-
-#if defined(__x86_64__)
-#else
-#define ARM_NEON 1
-#endif
-
-#endif
-
-#if LINUX
-#if defined(__aarch64__) || defined(__arm__)
-#define ARM_NEON 1
-#endif
-#endif
-
-#if defined(__SSE2__) || defined(_M_AMD64) || defined(_M_X64) ||                                   \
-    (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
-#include <emmintrin.h>
-#else
-// With the upgrade to simde 0.8.2 and subsequent conversations
-// with simde maintainers, this include should work for every
-// non-intel platform, so remove the prior condition
-//
-// #if defined(__arm__) || defined(__aarch64__) || defined(__riscv)
-//
-// and just always include this in the else side
-#define SIMDE_ENABLE_NATIVE_ALIASES
-#include "simde/x86/sse2.h"
-#endif
+#include "sst/basic-blocks/simd/setup.h"
 
 #if MAC || LINUX
 #include <strings.h>
@@ -98,5 +69,5 @@ const int DEFAULT_POLYLIMIT = 16;
 
 const int DEFAULT_OSC_PORT_IN = 53280;
 const int DEFAULT_OSC_PORT_OUT = 53281;
-const std::string DEFAULT_OSC_IPADDR_OUT = "127.0.0.1";
+const inline std::string DEFAULT_OSC_IPADDR_OUT = "127.0.0.1";
 #endif // SURGE_SRC_COMMON_GLOBALS_H
