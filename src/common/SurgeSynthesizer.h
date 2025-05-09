@@ -475,7 +475,7 @@ class alignas(16) SurgeSynthesizer
 
     //==============================================================================
     // synth -> editor variables
-    bool refresh_editor, refresh_vkb, patch_loaded;
+    bool refresh_editor{false}, refresh_vkb{false}, patch_loaded{false};
     int learn_param_from_cc, learn_macro_from_cc, learn_param_from_note;
     int refresh_ctrl_queue[8];
     int refresh_parameter_queue[8];
@@ -487,11 +487,11 @@ class alignas(16) SurgeSynthesizer
     std::atomic<int> patchid_queue;
 
     // updated in audio thread, read from UI, so have assignments be atomic
-    std::atomic<int> hasUpdatedMidiCC;
-    std::atomic<int> modwheelCC, pitchbendMIDIVal, sustainpedalCC;
-    std::atomic<bool> midiSoftTakeover;
+    std::atomic<int> hasUpdatedMidiCC{false};
+    std::atomic<int> modwheelCC{0}, pitchbendMIDIVal{0}, sustainpedalCC{0};
+    std::atomic<bool> midiSoftTakeover{false};
 
-    float vu_peak[8];
+    float vu_peak[8]{};
     std::atomic<float> cpu_level{0.f};
 
     void populateDawExtraState();
@@ -511,6 +511,7 @@ class alignas(16) SurgeSynthesizer
     bool &mpeEnabled;
     int mpeVoices = 0;
     int mpeGlobalPitchBendRange = 0;
+    bool mpeTimbreIsUnipolar = false;
 
     std::bitset<128> disallowedLearnCCs{0};
     std::array<uint64_t, 128> midiKeyPressedForScene[n_scenes];

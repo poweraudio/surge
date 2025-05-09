@@ -614,7 +614,7 @@ SurgeStorage::SurgeStorage(const SurgeStorage::SurgeStorageConfig &config) : oth
     }
     catch (fs::filesystem_error &e)
     {
-        reportError(e.what(), "Error Scnning Modulator Presets");
+        reportError(e.what(), "Error Scanning Modulator Presets");
     }
     memoryPools = std::make_unique<Surge::Memory::SurgeMemoryPools>(this);
 }
@@ -3498,14 +3498,20 @@ std::string base64_decode(std::string const &encoded_string)
     return ret;
 }
 
-bool getValueDispPrecision(SurgeStorage *storage)
+int getValueDisplayPrecision(SurgeStorage *storage)
 {
+    return getValueDisplayIsHighPrecision(storage) ? 6 : 2;
+}
+
+bool getValueDisplayIsHighPrecision(SurgeStorage *storage)
+{
+    bool isHigh{false};
     if (storage)
     {
-        return getUserDefaultValue(storage, HighPrecisionReadouts, false);
+        isHigh = getUserDefaultValue(storage, HighPrecisionReadouts, false);
     }
-
-    return false;
+    return isHigh;
+    ;
 }
 
 } // namespace Storage

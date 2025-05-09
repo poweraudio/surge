@@ -47,7 +47,7 @@ bool prepareForEvaluation(SurgeStorage *storage, FormulaModulatorStorage *fs, Ev
         if (stateData.audioState == nullptr)
         {
 #if HAS_LUA
-            stateData.audioState = lua_open();
+            stateData.audioState = luaL_newstate();
             luaL_openlibs((lua_State *)(stateData.audioState));
 #endif
             firstTimeThrough = true;
@@ -64,7 +64,7 @@ bool prepareForEvaluation(SurgeStorage *storage, FormulaModulatorStorage *fs, Ev
         if (stateData.displayState == nullptr)
         {
 #if HAS_LUA
-            stateData.displayState = lua_open();
+            stateData.displayState = luaL_newstate();
             luaL_openlibs((lua_State *)(stateData.displayState));
 #endif
             firstTimeThrough = true;
@@ -177,9 +177,8 @@ end
         }
         else
         {
-            s.adderror("Unable to determine process() or init() function : " + emsg);
-            lua_pop(s.L, 1); // process
-            lua_pop(s.L, 1); // process
+            s.adderror("Unable to determine process() or init() function: " + emsg);
+            lua_pop(s.L, 2); // Pop process and init (or nil)
             stateData.knownBadFunctions.insert(s.funcName);
         }
 
@@ -194,15 +193,10 @@ end
         lua_getglobal(s.L, s.funcNameInit);
         lua_createtable(s.L, 0, 10);
 
-        // add subscription hooks
-        lua_createtable(s.L, 0, 5);                   // subscriptions
-        lua_createtable(s.L, n_customcontrollers, 0); // macros
-        for (int i = 0; i < n_customcontrollers; ++i)
-        {
-            lua_pushnumber(s.L, i + 1);
-            lua_pushboolean(s.L, false);
-            lua_settable(s.L, -3);
-        }
+        // Legacy tables for deprecated macro subscriptions
+        // TODO: Remove in XT2
+        lua_createtable(s.L, 0, 0);
+        lua_createtable(s.L, 0, 0);
         lua_setfield(s.L, -2, "macros");
         lua_setfield(s.L, -2, "subscriptions");
 
@@ -217,6 +211,11 @@ end
             // CALL HERE
             auto addn = [&s](const char *q, float f) {
                 lua_pushnumber(s.L, f);
+                lua_setfield(s.L, -2, q);
+            };
+
+            auto addi = [&s](const char *q, float f) {
+                lua_pushinteger(s.L, f);
                 lua_setfield(s.L, -2, q);
             };
 
@@ -241,8 +240,26 @@ end
             addn("songpos", s.songpos);
             addb("released", s.released);
 
+            if (s.isVoice)
+            {
+                addi("channel", s.channel);
+                addi("key", s.key);
+                addi("velocity", s.velocity);
+                addi("voice_id", s.voiceOrderAtCreate);
+            }
+
             addb("is_rendering_to_ui", s.is_display);
             addb("clamp_output", true);
+
+            // Load the macros
+            lua_createtable(s.L, n_customcontrollers, 0);
+            for (int i = 0; i < n_customcontrollers; ++i)
+            {
+                lua_pushinteger(s.L, i + 1);
+                lua_pushnumber(s.L, s.macrovalues[i]);
+                lua_settable(s.L, -3);
+            }
+            lua_setfield(s.L, -2, "macros");
 
             auto cres = lua_pcall(s.L, 1, 1, 0);
             if (cres == LUA_OK)
@@ -260,8 +277,13 @@ end
             {
                 s.isvalid = false;
                 std::ostringstream oss;
-                oss << "Failed to evaluate init() function! " << lua_tostring(s.L, -1);
+                const char *err = lua_tostring(s.L, -1);
+                // Fallback if error(nil)
+                if (!err)
+                    err = "Lua error: Value is nil";
+                oss << "Failed to evaluate init() function! " << err;
                 s.adderror(oss.str());
+                lua_pop(s.L, 1); // Pop error
                 stateData.knownBadFunctions.insert(s.funcName);
             }
         }
@@ -270,7 +292,7 @@ end
         lua_setglobal(s.L, s.stateName);
 
         // the modulator state which is now bound to the state name
-        lua_pop(s.L, -1);
+        lua_settop(s.L, 0); // Clear all elements from the stack
 
         s.useEnvelope = true;
 
@@ -280,7 +302,7 @@ end
             lua_getglobal(s.L, s.stateName);
             if (!lua_istable(s.L, -1))
             {
-                lua_pop(s.L, -1);
+                lua_pop(s.L, 1); // Pop non-table
                 std::cout << "Not a table!" << std::endl;
             }
             else
@@ -293,47 +315,9 @@ end
                     {
                         s.useEnvelope = lua_toboolean(s.L, -1);
                     }
-                    lua_pop(s.L, 1);
+                    lua_pop(s.L, 1); // Pop use_envelope
                 }
-
-                // now let's read off those subscriptions
-                lua_getfield(s.L, -1, "subscriptions");
-
-                auto gv = [&s](const char *k) -> bool {
-                    auto gv =
-                        Surge::LuaSupport::SGLD("prepareForEvaluation::subscriptions::gv", s.L);
-
-                    auto res = false;
-                    lua_getfield(s.L, -1, k);
-                    if (lua_isboolean(s.L, -1))
-                    {
-                        res = lua_toboolean(s.L, -1);
-                    }
-                    lua_pop(s.L, 1);
-                    return res;
-                };
-
-                lua_getfield(s.L, -1, "macros");
-                if (lua_isboolean(s.L, -1))
-                {
-                    auto b = lua_toboolean(s.L, -1);
-                    s.subAnyMacro = b;
-                    for (int i = 0; i < n_customcontrollers; ++i)
-                        s.subMacros[i] = b;
-                }
-                else if (lua_istable(s.L, -1))
-                {
-                    for (int i = 0; i < n_customcontrollers; ++i)
-                    {
-                        lua_pushnumber(s.L, i + 1);
-                        lua_gettable(s.L, -2);
-                        const bool res = (lua_isboolean(s.L, -1)) ? lua_toboolean(s.L, -1) : false;
-                        lua_pop(s.L, 1);
-                        s.subAnyMacro = s.subAnyMacro || res;
-                        s.subMacros[i] = res;
-                    }
-                }
-                lua_pop(s.L, 3); // pop the macros, subscriptions, and modulator state
+                lua_pop(s.L, 1); // Pop the modulator state
             }
         }
     }
@@ -343,20 +327,18 @@ end
         // Move to support
         auto dg = Surge::LuaSupport::SGLD("set RNG", s.L);
         // Seed the RNG
-        lua_getglobal(s.L, "math");
-        // > math
+        lua_getglobal(s.L, "math"); // > math
         if (lua_isnil(s.L, -1))
         {
             std::cout << "NIL MATH " << std::endl;
         }
         else
         {
-            lua_getfield(s.L, -1, "randomseed");
-            // > math > randomseed
+            lua_getfield(s.L, -1, "randomseed"); // > math > randomseed
             if (lua_isnil(s.L, -1))
             {
                 std::cout << "NUL randomseed" << std::endl;
-                lua_pop(s.L, -1);
+                lua_pop(s.L, 1); // Pop nil
             }
             else
             {
@@ -364,8 +346,7 @@ end
                 lua_pcall(s.L, 1, 0, 0);
             }
         }
-        // math or nil so
-        lua_pop(s.L, 1);
+        lua_pop(s.L, 1); // Pop math (or nil)
     }
 
     s.del = 0;
@@ -486,7 +467,7 @@ void valueAt(int phaseIntPart, float phaseFracPart, SurgeStorage *storage,
     };
 
     auto addi = [s](const char *q, int i) {
-        lua_pushnumber(s->L, i);
+        lua_pushinteger(s->L, i);
         lua_setfield(s->L, -2, q);
     };
 
@@ -545,6 +526,7 @@ void valueAt(int phaseIntPart, float phaseFracPart, SurgeStorage *storage,
 
     addb("released", s->released);
     addb("is_rendering_to_ui", s->is_display);
+    addb("mpe_enabled", s->mpeenabled);
 
     addnil("retrigger_AEG");
     addnil("retrigger_FEG");
@@ -573,21 +555,15 @@ void valueAt(int phaseIntPart, float phaseFracPart, SurgeStorage *storage,
         addb("is_voice", false);
     }
 
-    if (s->subAnyMacro)
+    // Load the macros
+    lua_createtable(s->L, n_customcontrollers, 0);
+    for (int i = 0; i < n_customcontrollers; ++i)
     {
-        // load the macros
-        lua_createtable(s->L, n_customcontrollers, 0);
-        for (int i = 0; i < n_customcontrollers; ++i)
-        {
-            if (s->subMacros[i])
-            {
-                lua_pushinteger(s->L, i + 1);
-                lua_pushnumber(s->L, s->macrovalues[i]);
-                lua_settable(s->L, -3);
-            }
-        }
-        lua_setfield(s->L, -2, "macros");
+        lua_pushinteger(s->L, i + 1);
+        lua_pushnumber(s->L, s->macrovalues[i]);
+        lua_settable(s->L, -3);
     }
+    lua_setfield(s->L, -2, "macros");
 
     if (justSetup)
     {
@@ -724,7 +700,11 @@ void valueAt(int phaseIntPart, float phaseFracPart, SurgeStorage *storage,
     {
         s->isvalid = false;
         std::ostringstream oss;
-        oss << "Failed to evaluate the process() function!" << lua_tostring(s->L, -1);
+        const char *err = lua_tostring(s->L, -1);
+        // Fallback if error(nil)
+        if (!err)
+            err = "Lua error: Value is nil";
+        oss << "Failed to evaluate the process() function! " << err;
         s->adderror(oss.str());
         lua_pop(s->L, 1);
         return;
@@ -732,14 +712,56 @@ void valueAt(int phaseIntPart, float phaseFracPart, SurgeStorage *storage,
 #endif
 }
 
-std::vector<DebugRow> createDebugDataOfModState(const EvaluatorState &es)
+enum showFilter
+{
+    SHOW_ALL,
+    SHOW_USER,
+    SHOW_SYSTEM
+};
+
+bool isUserDefined(std::string str)
+{
+    static std::array<std::string, 51> keywords = {
+        "amplitude",     "attack",       "block_size",
+        "cc_breath",     "cc_expr",      "cc_mw",
+        "cc_sus",        "chan_at",      "channel",
+        "clamp_output",  "cycle",        "decay",
+        "deform",        "delay",        "highest_key",
+        "hold",          "intphase",     "is_rendering_to_ui",
+        "is_voice",      "key",          "latest_key",
+        "lowest_key",    "macros",       "mpe_bend",
+        "mpe_bendrange", "mpe_enabled",  "mpe_pressure",
+        "mpe_timbre",    "output",       "pb",
+        "pb_range_dn",   "pb_range_up",  "phase",
+        "play_mode",     "poly_at",      "poly_limit",
+        "rate",          "rel_velocity", "release",
+        "released",      "samplerate",   "scene_mode",
+        "songpos",       "split_point",  "startphase",
+        "sustain",       "tempo",        "velocity",
+        "voice_count",   "voice_id",     "subscriptions"};
+
+    auto foundInList = std::find(keywords.begin(), keywords.end(), str) != keywords.end();
+    // std::cout << "isCustom " << str << " = " << foundInList << "\n";
+    return !foundInList;
+}
+
+void setUserDefined(DebugRow &row, int depth, bool custom)
+{
+
+    if ((isUserDefined(row.label) && depth == 0) || custom == true)
+        row.isUserDefined = true;
+}
+
+std::vector<DebugRow> createDebugDataOfModState(const EvaluatorState &es, std::string filter,
+                                                bool state[8])
 {
 #if HAS_LUA
     std::vector<DebugRow> rows;
     Surge::LuaSupport::SGLD guard("debugViewGuard", es.L);
 
-    std::function<void(const int, bool)> rec;
-    rec = [&rows, &es, &rec](const int depth, bool internal) {
+    std::function<void(const int, bool, bool, std::string, showFilter, int)> rec;
+    rec = [&rows, &es, &rec](const int depth, bool internal, bool parentIsUser, std::string filter,
+                             showFilter show, int g) {
         Surge::LuaSupport::SGLD guardR("rec[" + std::to_string(depth) + "]", es.L);
 
         if (lua_istable(es.L, -1))
@@ -758,7 +780,8 @@ std::vector<DebugRow> createDebugDataOfModState(const EvaluatorState &es)
                 }
                 else if (lua_isstring(es.L, -2))
                 {
-                    skeys.push_back(lua_tostring(es.L, -2));
+                    skeys.insert(skeys.begin(), lua_tostring(es.L, -2));
+                    // skeys.push_back(lua_tostring(es.L, -2));
                 }
                 lua_pop(es.L, 1);
             }
@@ -771,6 +794,7 @@ std::vector<DebugRow> createDebugDataOfModState(const EvaluatorState &es)
                         return true;
                     return a < b;
                 });
+
             if (!ikeys.empty())
                 std::sort(ikeys.begin(), ikeys.end());
 
@@ -778,26 +802,45 @@ std::vector<DebugRow> createDebugDataOfModState(const EvaluatorState &es)
                 if (lua_isnumber(es.L, -1))
                 {
                     rows.emplace_back(depth, lab, lua_tonumber(es.L, -1));
+                    rows.back().group = g;
                 }
                 else if (lua_isstring(es.L, -1))
                 {
                     rows.emplace_back(depth, lab, lua_tostring(es.L, -1));
+                    rows.back().group = g;
                 }
                 else if (lua_isboolean(es.L, -1))
                 {
                     rows.emplace_back(depth, lab, (lua_toboolean(es.L, -1) ? "true" : "false"));
+                    rows.back().group = g;
                 }
                 else if (lua_istable(es.L, -1))
                 {
-                    rows.emplace_back(depth, lab);
-                    internal = internal || (lab == "subscriptions");
-                    rows.back().isInternal = internal;
-                    rec(depth + 1, internal);
+
+                    int maxDepth = parentIsUser || (isUserDefined(lab) && depth == 0) ? 2 : 2;
+
+                    if (depth < maxDepth)
+                    {
+                        rows.emplace_back(depth, lab);
+                        internal = internal || (lab == "subscriptions");
+
+                        rows.back().isInternal = internal;
+                        rows.back().group = g;
+                        rec(depth + 1, internal, rows.back().isUserDefined, "", show, g);
+                    }
+                    else
+                    {
+                        rows.emplace_back(depth, lab, "(table)");
+                        rows.back().group = g;
+                    }
                 }
                 else if (lua_isfunction(es.L, -1))
                 {
-                    rows.emplace_back(depth, lab, "(function)");
-                    rows.back().isInternal = internal;
+                    if (depth == 0)
+                    {
+                        rows.emplace_back(depth, lab, "(function)");
+                        rows.back().isInternal = internal;
+                    }
                 }
                 else if (lua_isnil(es.L, -1))
                 {
@@ -815,32 +858,135 @@ std::vector<DebugRow> createDebugDataOfModState(const EvaluatorState &es)
             {
                 std::ostringstream oss;
                 oss << "." << k;
+                auto label = oss.str();
+
                 lua_pushinteger(es.L, k);
                 lua_gettable(es.L, -2);
-                guts(oss.str());
+                guts(label);
                 lua_pop(es.L, 1);
             }
 
             for (auto s : skeys)
             {
-                lua_getfield(es.L, -1, s.c_str());
-                guts(s);
-                lua_pop(es.L, 1);
+                if (show == SHOW_ALL || (show == SHOW_USER && isUserDefined(s)) ||
+                    (show == SHOW_SYSTEM && !isUserDefined(s)))
+                {
+                    lua_getfield(es.L, -1, s.c_str());
+                    guts(s);
+                    lua_pop(es.L, 1);
+                }
             }
         }
     };
 
-    for (const auto &t : {es.stateName, sharedTableName})
+    struct
     {
-        lua_getglobal(es.L, t);
+        const char *var;
+        std::string label;
+        int id = 0;
+        showFilter show;
+    } groups[3];
+
+    // Groups
+
+    groups[0] = {es.stateName, "User variables", 0, SHOW_USER};
+    groups[1] = {sharedTableName, "Shared", 1, SHOW_ALL};
+    groups[2] = {es.stateName, "Built-in variables", 2, SHOW_SYSTEM};
+
+    int i = 0;
+    for (const auto &t : groups)
+    {
+        lua_getglobal(es.L, t.var);
+
+        // create header
+
+        rows.emplace_back(0, " " + groups[i].label, "");
+        rows.back().isHeader = true;
+        rows.back().group = groups[i].id;
+
         if (!lua_istable(es.L, -1))
         {
-            lua_pop(es.L, -1);
-            rows.emplace_back(0, "Error", "Not a table");
-            continue;
+            if (state[i] == true)
+            {
+
+                rows.emplace_back(0, "Error", "Not a table");
+                rows.back().group = groups[i].id;
+            }
         }
-        rec(0, false);
-        lua_pop(es.L, -1);
+        else
+        {
+            if (state[i] == true)
+            {
+                rec(0, false, false, filter, groups[i].show, groups[i].id);
+            }
+        }
+        lua_pop(es.L, 1); // Pop global (table or non-table)
+        i++;
+    }
+
+    // filtering
+
+    if (filter != "")
+    {
+        for (int i = 0; i < rows.size(); i++)
+        {
+            auto search = rows[i].label.find(filter, 0);
+            if ((search != std::string::npos))
+            {
+                rows[i].filterFlag = DebugRow::Found;
+
+                // tag all of its children
+                for (int k = i + 1; k < rows.size(); k++)
+                {
+                    if (rows[k].depth > rows[i].depth)
+                        rows[k].filterFlag = DebugRow::Child;
+
+                    if (rows[k].depth == rows[i].depth)
+                        break;
+                }
+            }
+        }
+
+        for (int i = rows.size() - 1; i > -1; i--)
+        {
+
+            if (rows[i].filterFlag == DebugRow::Found)
+            {
+
+                // found
+                // iterate through its parent objects until it reaches .state
+
+                int currentDepth = rows[i].depth;
+
+                if (currentDepth > 0)
+                {
+                    for (int k = i - 1; k > -1; k--)
+                    {
+
+                        if (rows[k].depth < currentDepth)
+                        {
+                            // parent found
+                            // tag as ignore
+
+                            currentDepth = rows[k].depth;
+                            rows[k].filterFlag = DebugRow::Ignore;
+
+                            if (currentDepth == 0)
+                                break;
+                        }
+                    }
+                }
+            }
+        }
+
+        for (int i = rows.size() - 1; i > -1; i--)
+        {
+            if (rows[i].filterFlag != DebugRow::Found && rows[i].filterFlag != DebugRow::Ignore &&
+                rows[i].filterFlag != DebugRow::Child && !rows[i].isHeader)
+            {
+                rows.erase(rows.begin() + i);
+            }
+        }
     }
 
     return rows;
@@ -851,7 +997,9 @@ std::vector<DebugRow> createDebugDataOfModState(const EvaluatorState &es)
 
 std::string createDebugViewOfModState(const EvaluatorState &es)
 {
-    auto r = createDebugDataOfModState(es);
+
+    bool groupState[8] = {true, true, true, true, true, true, true, true};
+    auto r = createDebugDataOfModState(es, "", groupState);
     std::ostringstream oss;
     for (const auto d : r)
     {
@@ -908,6 +1056,8 @@ void setupEvaluatorStateFrom(EvaluatorState &s, const SurgePatch &patch, int sce
     s.pbrange_up = (float)scene.pbrange_up.val.i * (scene.pbrange_up.extend_range ? 0.01f : 1.f);
     s.pbrange_dn = (float)scene.pbrange_dn.val.i * (scene.pbrange_dn.extend_range ? 0.01f : 1.f);
 
+    s.mpeenabled = patch.storage->mpeEnabled;
+
     s.aftertouch = scene.modsources[ms_aftertouch]->get_output(0);
     s.modwheel = scene.modsources[ms_modwheel]->get_output(0);
     s.breath = scene.modsources[ms_breath]->get_output(0);
@@ -920,7 +1070,6 @@ void setupEvaluatorStateFrom(EvaluatorState &s, const SurgePatch &patch, int sce
     s.polylimit = patch.polylimit.val.i;
     s.scenemode = patch.scenemode.val.i;
     s.polymode = patch.scene[sceneIndex].polymode.val.i;
-
     s.splitpoint = patch.splitpoint.val.i;
     if (s.scenemode == sm_chsplit)
         s.splitpoint = (int)(s.splitpoint / 8 + 1);
@@ -958,9 +1107,10 @@ std::variant<float, std::string, bool> runOverModStateForTesting(const std::stri
     }
 
     lua_getglobal(es.L, es.stateName);
+
     if (!lua_istable(es.L, -1))
     {
-        lua_pop(es.L, -1);
+        lua_pop(es.L, 1);
         return false;
     }
 
@@ -969,24 +1119,24 @@ std::variant<float, std::string, bool> runOverModStateForTesting(const std::stri
     if (lua_isnumber(es.L, -1))
     {
         auto res = lua_tonumber(es.L, -1);
-        lua_pop(es.L, -1);
+        lua_pop(es.L, 1);
         return (float)res;
     }
 
     if (lua_isboolean(es.L, -1))
     {
         auto res = lua_toboolean(es.L, -1);
-        lua_pop(es.L, -1);
+        lua_pop(es.L, 1);
         return (float)res;
     }
 
     if (lua_isstring(es.L, -1))
     {
         auto res = lua_tostring(es.L, -1);
-        lua_pop(es.L, -1);
+        lua_pop(es.L, 1);
         return res;
     }
-    lua_pop(es.L, -1);
+    lua_pop(es.L, 1); // Pop evaluator state
 #endif
     return false;
 }

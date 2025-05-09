@@ -62,9 +62,9 @@ else()
   target_compile_definitions(luajit-5.1 INTERFACE HAS_LUA=0 HAS_LUAJIT=0)
 endif()
 
+surge_add_lib_subdirectory(sst/sst-cpputils)
 set(SST_BASIC_BLOCKS_SIMD_OMIT_NATIVE_ALIASES ON CACHE BOOL "No Native Aliases for SCXT") # Makes ARM64EC use neon basically
 surge_add_lib_subdirectory(sst/sst-basic-blocks)
-surge_add_lib_subdirectory(sst/sst-cpputils)
 surge_add_lib_subdirectory(sst/sst-plugininfra)
 surge_add_lib_subdirectory(sst/sst-filters)
 surge_add_lib_subdirectory(sst/sst-waveshapers)
@@ -190,6 +190,8 @@ add_library(${PROJECT_NAME}
   dsp/SurgeVoice.cpp
   dsp/SurgeVoice.h
   dsp/SurgeVoiceState.h
+  dsp/TiltNoiseAdapter.cpp
+  dsp/TiltNoiseAdapter.h
   dsp/Wavetable.cpp
   dsp/Wavetable.h
   dsp/WavetableScriptEvaluator.cpp
