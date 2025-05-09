@@ -63,6 +63,9 @@ LFOAndStepDisplay::LFOAndStepDisplay(SurgeGUIEditor *e)
     setAccessible(true);
     setFocusContainerType(juce::Component::FocusContainerType::focusContainer);
 
+    memset(paramsFromLastDrawCall, 0, sizeof(paramsFromLastDrawCall));
+    memset(settingsFromLastDrawCall, 0, sizeof(settingsFromLastDrawCall));
+
     backingImage = std::make_unique<juce::Image>(juce::Image::PixelFormat::ARGB, 50, 50, true);
     waveformIsUpdated = true;
 
@@ -1461,11 +1464,12 @@ void LFOAndStepDisplay::paintStepSeq(juce::Graphics &g)
     // Finally draw the drag label
     if (dragMode == VALUES && draggedStep >= 0 && draggedStep < n_stepseqsteps)
     {
-        const bool detailedMode = Surge::Storage::getValueDispPrecision(storage);
+        const int displayPrecision = Surge::Storage::getValueDisplayPrecision(storage);
 
         g.setFont(skin->fontManager->lfoTypeFont);
 
-        std::string txt = fmt::format("{:.{}f} %", ss->steps[draggedStep] * 100.f, detailedMode);
+        std::string txt =
+            fmt::format("{:.{}f} %", ss->steps[draggedStep] * 100.f, displayPrecision);
 
         int sw = SST_STRING_WIDTH_INT(g.getCurrentFont(), txt);
 
@@ -2661,10 +2665,9 @@ void LFOAndStepDisplay::showStepRMB(int i)
 
     contextMenu.addSeparator();
 
-    const bool detailedMode = Surge::Storage::getValueDispPrecision(storage);
+    const int precision = Surge::Storage::getValueDisplayPrecision(storage);
 
-    auto msg =
-        fmt::format("Edit Step {} Value: {:.{}f} %", i + 1, ss->steps[i] * 100.f, detailedMode);
+    auto msg = fmt::format("Edit Step {} Value: {:.{}f} %", i + 1, ss->steps[i] * 100.f, precision);
 
     contextMenu.addItem(Surge::GUI::toOSCase(msg), true, false, [this, i]() { showStepTypein(i); });
 
@@ -2673,7 +2676,8 @@ void LFOAndStepDisplay::showStepRMB(int i)
 
 void LFOAndStepDisplay::showStepTypein(int i)
 {
-    const bool detailedMode = Surge::Storage::getValueDispPrecision(storage);
+    const bool isDetailed = Surge::Storage::getValueDisplayIsHighPrecision(storage);
+    const int precision = Surge::Storage::getValueDisplayPrecision(storage);
 
     auto handleTypein = [this, i](const std::string &s) {
         auto divPos = s.find('/');
@@ -2708,15 +2712,19 @@ void LFOAndStepDisplay::showStepTypein(int i)
     if (!stepEditor)
     {
         stepEditor = std::make_unique<Surge::Overlays::TypeinLambdaEditor>(handleTypein);
+    }
+
+    if (getParentComponent()->getIndexOfChildComponent(stepEditor.get()) < 0)
+    {
         getParentComponent()->addChildComponent(*stepEditor);
     }
 
     stepEditor->callback = handleTypein;
     stepEditor->setMainLabel(fmt::format("Edit Step {} Value", std::to_string(i + 1)));
-    stepEditor->setValueLabels(
-        fmt::format("current: {:.{}f} %", ss->steps[i] * 100.f, detailedMode), "");
+    stepEditor->setValueLabels(fmt::format("current: {:.{}f} %", ss->steps[i] * 100.f, precision),
+                               "");
     stepEditor->setSkin(skin, associatedBitmapStore);
-    stepEditor->setEditableText(fmt::format("{:.{}f} %", ss->steps[i] * 100.f, detailedMode));
+    stepEditor->setEditableText(fmt::format("{:.{}f} %", ss->steps[i] * 100.f, precision));
     stepEditor->setReturnFocusTarget(stepSliderOverlays[i].get());
 
     auto topOfControl = getY();
